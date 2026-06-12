@@ -1,0 +1,37 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Datasets
+data_preprocessing/
+
+# Large model/checkpoint files
+*.pth
+*.pt
+*.ckpt
+*.tar
+*.pkl
+
+# Required checkpoints and pretrained weights
+models/pretrain/*
+!models/pretrain/save_pretrain_here
+!models/pretrain/save_required_checkpoints_here
+
+# Training checkpoints
+checkpoints/*
+!checkpoints/save_checkpoint_here
+!checkpoints/save_trained_checkpoints_here
+
+checkpoint/
+checkpoint_caers/
+checkpoint_FANE/
+
+# Logs
+log/
+log_caers/
+log_Fane/
+
+# IDE/system files
+.vscode/
+.idea/
+.DS_Store
