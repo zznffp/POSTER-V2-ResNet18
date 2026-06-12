@@ -3,7 +3,8 @@ __pycache__/
 *.pyc
 
 # Datasets
-data_preprocessing/
+data_preprocessing/*
+!data_preprocessing/save_datasets_here
 
 # Large model/checkpoint files
 *.pth
