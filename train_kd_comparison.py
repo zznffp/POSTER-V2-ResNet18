@@ -1,5 +1,4 @@
 import warnings
-
 warnings.filterwarnings("ignore")
 import os
 import sys
@@ -9,7 +8,6 @@ import random
 import time
 import numpy as np
 import matplotlib.pyplot as plt
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,9 +16,7 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from thop import profile
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
-
 from models.PosterV2_7cls import PosterV2_ResNet
 from models.PosterV2_Original import pyramid_trans_expr2
 from models.kd_losses import kd_loss, fitnet_loss, multi_scale_at_loss, SimKDProjector, simkd_loss
