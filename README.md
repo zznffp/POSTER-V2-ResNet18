@@ -52,10 +52,10 @@ models/pretrain/
   mobilefacenet_model_best.pth.tar
   resnet18_msceleb.pth
 ```
-
-These checkpoints include publicly available pretrained weights and teacher checkpoints trained for this study. They are used for teacher supervision, backbone initialization, and auxiliary branches during training.
+These checkpoints include publicly available pretrained weights and teacher checkpoints used in this study. The FANE teacher checkpoint was trained by the authors using the POSTER++ architecture because the original POSTER++ paper did not provide a FANE checkpoint.
 
 Due to license and file-size considerations, these checkpoint files are not redistributed in this repository. Users should prepare the required files and place them in the specified directory before training.
+
 
 ## Training
 
