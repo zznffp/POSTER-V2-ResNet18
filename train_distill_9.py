@@ -6,7 +6,6 @@ import argparse
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,7 +14,6 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from models.PosterV2_9cls import PosterV2_ResNet
 from models.PosterV2_Original_9 import pyramid_trans_expr2
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
 
 try:
@@ -120,27 +118,22 @@ parser.add_argument('--start_epoch', type=int, default=0)
 parser.add_argument('--workers', default=4, type=int)
 parser.add_argument('--epochs', default=200, type=int)
 parser.add_argument('--batch-size', default=128, type=int)
-
 parser.add_argument('--wd_backbone', default=1e-4, type=float,
                     help='Weight decay for ResNet backbone (small, to preserve transfer-learned features)')
 parser.add_argument('--wd_head', default=1e-2, type=float,
                     help='Weight decay for ViT head + projector (large, to suppress head overfitting)')
 parser.add_argument('--weight_decay', default=1e-4, type=float,
                     help='[legacy compat] uniform value used when differentiated WD is not applied')
-
 parser.add_argument('--lr', default=0.0002, type=float)
-
 parser.add_argument('--use_mixup', default=True, type=bool)
 parser.add_argument('--mixup_alpha', default=0.2, type=float,
                     help='Mixup alpha (lowered: 0.5->0.2, reduces double blurring with distillation soft labels)')
 parser.add_argument('--mixup_prob', default=0.5, type=float,
                     help='Mixup probability (lowered: 0.8->0.5)')
-
 parser.add_argument('--temperature', default=4.0, type=float,
                     help='Distillation Temperature (raised: 3.5->4.0, richer soft-label information)')
 parser.add_argument('--alpha', default=0.6, type=float,
                     help='Distillation Loss Weight (raised: 0.5->0.6, relies more on teacher soft labels)')
-
 parser.add_argument('--beta', default=0.5, type=float)
 parser.add_argument('--label_smoothing', default=0.15, type=float)
 parser.add_argument('--dropout', default=0.4, type=float)
@@ -155,12 +148,9 @@ parser.add_argument('--proto_contrast_temp', default=0.1, type=float,
 parser.add_argument('--contrast_temperature', default=0.07, type=float)
 parser.add_argument('--use_distance_contrast', default=True, type=bool)
 parser.add_argument('--warmup_epochs', default=5, type=int)
-
-
 parser.add_argument('--accumulation_steps', default=1, type=int)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--focal_gamma', default=2.5, type=float)
-
 parser.add_argument('--lambda_na_msac', type=float, default=1.0,
                     help='NA-MSAC loss weight (recommended: 0.5-1.0, default: 1.0)')
 parser.add_argument('--na_msac_noise_aware', action='store_true', default=True,
@@ -171,15 +161,12 @@ parser.add_argument('--na_msac_class_aware', action='store_true', default=False,
                     help='NA-MSAC: enable class-aware mode (default: False)')
 parser.add_argument('--no_na_msac_class_aware', action='store_false', dest='na_msac_class_aware',
                     help='NA-MSAC: disable class-aware mode')
-
 parser.add_argument('--use_csi', action='store_true', default=False,
                     help='Enable CSI (Cross-Scale Interaction)')
 parser.add_argument('--no_csi', action='store_false', dest='use_csi',
                     help='Disable CSI')
 parser.add_argument('--gpu', type=str, default='0', help='GPU ID to use')
-
 args = parser.parse_args()
-
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
 
@@ -246,11 +233,8 @@ def multilayer_distillation_loss(student_logits, teacher_logits,
     teacher_global_norm = F.normalize(teacher_global, p=2, dim=-1)
     global_loss = F.mse_loss(student_global_norm, teacher_global_norm)
     feature_loss = 0.6 * cls_loss + 0.4 * global_loss
-
-    # 4. Contrastive distillation
     contrastive_loss = contrastive_criterion(student_cls, teacher_cls)
 
-    # 5. Combine
     logits_loss = alpha * soft_loss + (1 - alpha) * hard_loss
     total_loss = logits_loss + lambda_feature * feature_loss + lambda_contrast * contrastive_loss
 
@@ -565,8 +549,6 @@ def main():
     torch.manual_seed(seed); torch.cuda.manual_seed(seed); torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    print(f"✓ Using {seed_type} seed: {seed}")
-
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_file = f'./log_Fane/train_v2_proto_seed{seed}_{timestamp}.log'
     curve_file = f'./log_Fane/train_v2_proto_seed{seed}_{timestamp}_curve.png'
@@ -577,15 +559,8 @@ def main():
         with open(log_file, 'a', encoding='utf-8') as f:
             f.write(message + '\n')
 
-    # 1. Teacher model
-    log_print("=" * 80)
-    log_print("Multi-Layer Feature Distillation Training v2 + Prototype Distillation")
-    log_print("=" * 80)
     teacher = load_teacher_model(args.teacher_path)
     teacher = teacher.cuda()
-
-    # 2. Student model
-    log_print("\n=> Creating student model: PosterV2 (ResNet18)...")
     student = PosterV2_ResNet(img_size=224, num_classes=9, dropout=args.dropout, use_csi=args.use_csi)
 
     total_params = sum(p.numel() for p in student.parameters())
@@ -607,17 +582,6 @@ def main():
     log_print(f"   - Warmup epochs: {args.warmup_epochs}")
     log_print(f"   - LR Scheduler: Warmup + Cosine Annealing")
     log_print(f"  -Distillation alpha: {args.alpha} ")
-    log_print(f"   - Temperature: {args.temperature} ")
-    log_print(f"   - Focal Loss gamma: {args.focal_gamma}")
-    log_print(f"   - Mixup: {args.use_mixup} (alpha={args.mixup_alpha} [0.5->0.2], prob={args.mixup_prob} [0.8->0.5])")
-    log_print(f"   - Dropout: {args.dropout}")
-    log_print(f"   - Lambda feature: {args.lambda_feature}")
-    log_print(f"   - Lambda contrast: {args.lambda_contrast} (QCS-style: {args.use_distance_contrast})")
-    log_print(f"   - Contrast temperature: {args.contrast_temperature}")
-    log_print(f"   - Lambda proto: {args.lambda_proto} [Prototype positive alignment]")
-    log_print(f"   - Lambda proto contrast: {args.lambda_proto_contrast} [inter-class InfoNCE]")
-    log_print(f"   - Proto contrast temp: {args.proto_contrast_temp}")
-    log_print(f"   CSI enabled: {args.use_csi}")
     log_print("-" * 80)
 
     student = student.cuda()
