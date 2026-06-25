@@ -1,5 +1,4 @@
 import warnings
-
 warnings.filterwarnings("ignore")
 import os
 import sys
@@ -7,7 +6,6 @@ import argparse
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,7 +14,6 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from models.PosterV2_caers_cls import PosterV2_ResNet
 from models.PosterV2_Original_caers import pyramid_trans_expr2
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
 
 try:
@@ -49,7 +46,6 @@ class FocalLoss(nn.Module):
             return focal_loss.sum()
         else:
             return focal_loss
-
 
 class ContrastiveLoss(nn.Module):
     def __init__(self, temperature=0.07, use_distance=True):
@@ -146,7 +142,6 @@ parser.add_argument('--mixup_alpha', default=0.2, type=float, help='Mixup alpha 
 parser.add_argument('--seed', type=int, default=None, help='Random seed (None for time-based random seed)')
 parser.add_argument('--mixup_prob', default=0.5, type=float, help='Probability of applying Mixup')
 parser.add_argument('--focal_gamma', default=1.0, type=float, help='Focal Loss gamma parameter')
-
 parser.add_argument('--lambda_na_msac', type=float, default=1.0,
                     help='NA-MSAC loss weight (recommended: 0.5-1.0, default: 0.5)')
 parser.add_argument('--na_msac_noise_aware', action='store_true', default=True,
@@ -157,15 +152,12 @@ parser.add_argument('--na_msac_class_aware', action='store_true', default=False,
                     help='NA-MSAC: enable class-aware mechanism (default: False)')
 parser.add_argument('--no_na_msac_class_aware', action='store_false', dest='na_msac_class_aware',
                     help='NA-MSAC: disable class-aware mechanism')
-
 parser.add_argument('--use_csi', action='store_true', default=False,
                     help='Enable CSI (Cross-Scale Interaction)')
 parser.add_argument('--no_csi', action='store_false', dest='use_csi',
                     help='Disable CSI')
 parser.add_argument('--gpu', type=str, default='0', help='GPU ID to use')
-
 args = parser.parse_args()
-
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
 
@@ -272,11 +264,9 @@ def multilayer_distillation_loss(student_logits, teacher_logits,
     global_loss = F.mse_loss(student_global_norm, teacher_global_norm)
 
     feature_loss = 0.6 * cls_loss + 0.4 * global_loss
-
-    # 4. Contrastive distillation
     contrastive_loss = contrastive_criterion(student_cls, teacher_cls)
 
-    # 5. Combine all losses
+    #  Combine all losses
     logits_loss = alpha * soft_loss + (1 - alpha) * hard_loss
     total_loss = logits_loss + lambda_feature * feature_loss + lambda_contrast * contrastive_loss
 
@@ -284,8 +274,6 @@ def multilayer_distillation_loss(student_logits, teacher_logits,
 
 
 def load_teacher_model(checkpoint_path):
-    print("=> Loading teacher model...")
-
     import sys
     original_recorder = sys.modules['__main__'].__dict__.get('RecorderMeter', None)
     original_recorder1 = sys.modules['__main__'].__dict__.get('RecorderMeter1', None)
@@ -321,9 +309,6 @@ def load_teacher_model(checkpoint_path):
 
     for param in teacher.parameters():
         param.requires_grad = False
-
-    print(f"   Teacher model loaded successfully!")
-    print(f"   Teacher accuracy: {checkpoint['best_acc']:.2f}%")
 
     return teacher
 
@@ -415,16 +400,6 @@ def main():
     log_print(f"   - Warmup epochs: {args.warmup_epochs}")
     log_print(f"   - LR Scheduler: Warmup + Cosine Annealing")
     log_print(f"   -Distillation alpha: {args.alpha}")
-    
-    log_print(f"   - Temperature: {args.temperature}")
-    log_print(f"   - Focal Loss gamma: {args.focal_gamma}")
-    log_print(f"   - Mixup: {args.use_mixup} (alpha={args.mixup_alpha}, prob={args.mixup_prob})")
-    log_print(f"   - Dropout: {args.dropout}")
-    log_print(f"   - CSI: {'enabled' if args.use_csi else 'disabled'}")
-    log_print(f"   - Lambda feature: {args.lambda_feature}")
-    log_print(f"   - Lambda contrast: {args.lambda_contrast} (QCS-style: {args.use_distance_contrast})")
-    log_print(f"   - Lambda proto: {args.lambda_proto} (Prototype Alignment)")
-    log_print(f"   - Contrast temperature: {args.contrast_temperature}")
     log_print("-" * 80)
 
     student = student.cuda()
@@ -457,7 +432,6 @@ def main():
         log_print(f"   [NA-MSAC] Lambda: {args.lambda_na_msac}")
         log_print(f"   [NA-MSAC] Parameters: {na_msac_params}")
         log_print(f"   [NA-MSAC] Noise-aware:  {args.na_msac_noise_aware} (threshold={args.na_msac_noise_threshold})")
-        log_print(f"   [NA-MSAC] Class-aware:  {args.na_msac_class_aware}")
         log_print(f"   [NA-MSAC] Multi-scale:  True (28x28 + 14x14 + 7x7, weights=[0.2, 0.3, 0.5])")
 
     # 3. Data preparation (emotion-recognition-specific augmentation strategy)
