@@ -1,5 +1,4 @@
 import warnings
-
 warnings.filterwarnings("ignore")
 import os
 import sys
@@ -7,16 +6,13 @@ import argparse
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
-
 try:
     from mixup_consistency_ac import MixupConsistencyAC
 
@@ -153,12 +149,10 @@ parser.add_argument('--mixup_alpha', default=0.2, type=float, help='Mixup alpha 
 parser.add_argument('--seed', type=int, default=None, help='Random seed (None for time-based random seed)')
 parser.add_argument('--mixup_prob', default=0.5, type=float, help='Probability of applying Mixup')
 parser.add_argument('--focal_gamma', default=2.0, type=float, help='Focal Loss gamma parameter')
-
 parser.add_argument('--use_mixup_ac', action='store_true', default=False,
                     help='Use Mixup Consistency AC (default: False)')
 parser.add_argument('--no_mixup_ac', action='store_false', dest='use_mixup_ac', help='Disable Mixup Consistency AC')
 parser.add_argument('--lambda_mixup_ac', default=0.5, type=float, help='Mixup AC Loss weight')
-
 parser.add_argument('--lambda_na_msac', type=float, default=1.0,
                     help='NA-MSAC loss ')
 parser.add_argument('--na_msac_noise_aware', action='store_true', default=True,
@@ -169,12 +163,10 @@ parser.add_argument('--na_msac_class_aware', action='store_true', default=False,
                     help='NA-MSAC:  False')
 parser.add_argument('--no_na_msac_class_aware', action='store_false', dest='na_msac_class_aware',
                     help='NA-MSAC: False')
-
 parser.add_argument('--use_csi', action='store_true', default=False,
                     help='Cross-Scale Interaction,false')
 parser.add_argument('--no_csi', action='store_false', dest='use_csi',
                     help='false')
-
 args = parser.parse_args()
 
 
@@ -413,16 +405,6 @@ def main():
     log_print(f"   - Warmup epochs: {args.warmup_epochs}")
     log_print(f"   - LR Scheduler: Warmup + Cosine Annealing")
     log_print(f"   -Distillation alpha: {args.alpha}")
-    
-    log_print(f"   - Temperature: {args.temperature}")
-    log_print(f"   - Focal Loss gamma: {args.focal_gamma}")
-    log_print(f"   - Mixup: {args.use_mixup} (alpha={args.mixup_alpha}, prob={args.mixup_prob})")
-    log_print(f"   - Dropout: {args.dropout}")
-    log_print(f"   - CSI: {'enabled' if args.use_csi else 'disabled'}")
-    log_print(f"   - Lambda feature: {args.lambda_feature}")
-    log_print(f"   - Lambda contrast: {args.lambda_contrast} (QCS-style: {args.use_distance_contrast})")
-    log_print(f"   - Lambda proto: {args.lambda_proto} (Prototype Alignment)")
-    log_print(f"   - Contrast temperature: {args.contrast_temperature}")
     log_print("-" * 80)
 
     student = student.cuda()
@@ -435,8 +417,6 @@ def main():
     mixup_ac_module = None
     if args.use_mixup_ac:
         if not MIXUP_AC_AVAILABLE:
-            log_print("   ERROR: Mixup AC requested but module not available!")
-            log_print("   Please check models/mixup_consistency_ac.py exists")
             exit(1)
 
         mixup_ac_module = MixupConsistencyAC(
@@ -447,10 +427,6 @@ def main():
         ).cuda()
 
         mixup_ac_params = sum(p.numel() for p in mixup_ac_module.parameters())
-        log_print(f"   [Mixup AC] Initialized with {mixup_ac_params / 1e3:.2f}K parameters")
-        log_print(f"   [Mixup AC] Lambda: {args.lambda_mixup_ac}")
-        log_print(f"   [Mixup AC] Only active during Mixup batches")
-
     na_msac_module = None
     if args.lambda_na_msac > 0:
         if not NA_MSAC_AVAILABLE:
