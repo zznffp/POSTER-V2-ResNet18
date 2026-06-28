@@ -108,8 +108,7 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data', type=str, default='./data_preprocessing/CAER-S-divide-7folders',
-                    help='dataset path')
+parser.add_argument('--data', type=str, default='./data_preprocessing/CAER-S-divide-7folders', help='dataset path')
 parser.add_argument('--teacher_path', type=str, default='./models/pretrain/caer-s-model_best.pth')
 parser.add_argument('--checkpoint_path', type=str, default='./checkpoints/CAERS_resnet_distill_model.pth')
 parser.add_argument('--best_checkpoint_path', type=str, default='./checkpoints/resnet_distill_model_best.pth')
