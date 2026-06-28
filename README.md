@@ -66,7 +66,6 @@ Please run all commands from the project root directory.
 ```bash
 python train_distill.py \
   --data ./data_preprocessing/raf-db-divide-7folders \
-  --teacher_path ./models/pretrain/raf-db-model_best.pth \
   --epochs 200 \
   --batch-size 64 \
   --lr 1.0e-4 \
@@ -82,7 +81,6 @@ python train_distill.py \
 ```bash
 python train_distill-cears.py \
   --data ./data_preprocessing/CAER-S-divide-7folders \
-  --teacher_path ./models/pretrain/caer-s-model_best.pth \
   --epochs 250 \
   --batch-size 96 \
   --lr 1.5e-4 \
@@ -98,7 +96,6 @@ python train_distill-cears.py \
 ```bash
 python train_distill_9.py \
   --data ./data_preprocessing/FANE-divide-9folders \
-  --teacher_path ./models/pretrain/fane-model_best.pth \
   --epochs 200 \
   --batch-size 128 \
   --lr 2.0e-4 \
