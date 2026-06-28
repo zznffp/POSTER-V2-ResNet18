@@ -20,8 +20,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
 from models.PosterV2_7cls import PosterV2_ResNet
 from models.PosterV2_Original import pyramid_trans_expr2
 from models.kd_losses import kd_loss, fitnet_loss, multi_scale_at_loss, SimKDProjector, simkd_loss
-
-# NA-MSAC module (our method, only used for --kd_method ours)
 try:
     from noise_aware_native_attention import NoiseAwareNativeAttention
 
