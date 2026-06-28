@@ -117,8 +117,7 @@ from models.PosterV2_Original import pyramid_trans_expr2
 parser = argparse.ArgumentParser()
 parser.add_argument('--data', type=str, default='./data_preprocessing/raf-db-divide-7folders',
                     help='dataset path')
-parser.add_argument('--teacher_path', type=str, default='./models/pretrain/raf-db-model_best.pth',
-                    help='Teacher model checkpoints path')
+parser.add_argument('--teacher_path', type=str, default='./models/pretrain/raf-db-model_best.pth')
 parser.add_argument('--checkpoint_path', type=str, default='./checkpoints/RAF-DB_resnet_distill_model.pth')
 parser.add_argument('--best_checkpoint_path', type=str, default='./checkpoints/resnet_distill_model_best.pth')
 parser.add_argument('--resume', type=str, default='', help='Path to checkpoints to resume from')
