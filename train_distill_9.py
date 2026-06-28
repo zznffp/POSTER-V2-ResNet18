@@ -107,10 +107,8 @@ class LabelSmoothingCrossEntropy(nn.Module):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data', type=str,
-                    default='./data_preprocessing/FANE-divide-9folders/')
-parser.add_argument('--teacher_path', type=str,
-                    default='./models/pretrain/fane-model_best.pth')
+parser.add_argument('--data', type=str, default='./data_preprocessing/FANE-divide-9folders/')
+parser.add_argument('--teacher_path', type=str, default='./models/pretrain/fane-model_best.pth')
 parser.add_argument('--checkpoint_FANE_path', type=str, default='./checkpoints/FANE_resnet_distill_model.pth')
 parser.add_argument('--best_checkpoint_FANE_path', type=str, default='./checkpoints/resnet_distill_model_best.pth')
 parser.add_argument('--resume', type=str, default='', help='Path to checkpoints to resume from')
