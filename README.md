@@ -146,7 +146,7 @@ The required pretrained weights and teacher checkpoints are not included in this
 
 If you use this code, please cite:
 
-Wang, D. (2026). POSTER V2-ResNet18 with NA-MSAC (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.20661429
+Wang, D. (2026). POSTER V2-ResNet18 with NA-MSAC (v1.0.1). Zenodo. https://doi.org/10.5281/zenodo.20985138
 
 ## Acknowledgements
 
