@@ -146,8 +146,7 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data', type=str,default='./data_preprocessing/val_datasets/raf-db-divide-7folder',
-                    help='dataset path')
+parser.add_argument('--data', type=str,default='./data_preprocessing/val_datasets/raf-db-divide-7folder',help='dataset path')
 parser.add_argument('--teacher_path', type=str, default='./models/pretrain/raf-db-model_best.pth')
 parser.add_argument('--checkpoint_path', type=str, default='./checkpoints/resnet_distill_model.pth')
 parser.add_argument('--best_checkpoint_path', type=str, default='./checkpoints/resnet_distill_model_best.pth')
