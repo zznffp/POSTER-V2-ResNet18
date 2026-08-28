@@ -1,10 +1,10 @@
-# POSTER V2-ResNet18 with NA-MSAC
+# POSTER V2-ResNet18 
 
 This repository provides the PyTorch implementation of the manuscript:
 
-**Efficient Facial Expression Recognition via Multi-Level Knowledge Transfer and Noise-Aware Multi-Scale Attention Consistency**
+**Discrepancy-Regulated Cross-Attention Consistency for Efficient Facial Expression Recognition**
 
-The proposed method trains a lightweight **POSTER V2-ResNet18** model for facial expression recognition (FER). The training framework combines logits distillation, feature representation alignment, and Noise-Aware Multi-Scale Attention Consistency (NA-MSAC). During inference, only POSTER V2-ResNet18 is used.
+The proposed method trains a lightweight **POSTER V2-ResNet18** model for facial expression recognition (FER). The training framework combines logits distillation, feature representation alignment, and Discrepancy-Regulated Cross-Attention Consistency (DR-CAC). During inference, only POSTER V2-ResNet18 is used.
 
 ## Requirements
 
@@ -110,9 +110,9 @@ python train_distill_9.py \
 
 | Dataset | Accuracy (%) | Parameters | FLOPs |
 | ------- | -----------: | ---------: | ----: |
-| RAF-DB  |        91.17 |     20.89M | 3.82G |
-| CAER-S  |        92.36 |     20.89M | 3.82G |
-| FANE    |        73.67 |     20.89M | 3.82G |
+| RAF-DB  |        90.97 |     20.89M | 3.82G |
+| CAER-S  |        92.16 |     20.89M | 3.82G |
+| FANE    |        73.79 |     20.89M | 3.82G |
 
 ## Checkpoints and Logs
 
