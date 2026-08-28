@@ -1,10 +1,10 @@
-# POSTER V2-ResNet18 
+# POSTER V2-ResNet18 with DR-CAC 
 
 This repository provides the PyTorch implementation of the manuscript:
 
 **Discrepancy-Regulated Cross-Attention Consistency for Efficient Facial Expression Recognition**
 
-The proposed method trains a lightweight **POSTER V2-ResNet18** model for facial expression recognition (FER). The training framework combines logits distillation, feature representation alignment, and Discrepancy-Regulated Cross-Attention Consistency (DR-CAC). During inference, only POSTER V2-ResNet18 is used.
+The proposed method trains a lightweight **POSTER V2-ResNet18** model for facial expression recognition (FER). Its core training mechanism is **Discrepancy-Regulated Cross-Attention Consistency (DR-CAC)**, which regulates internal cross-attention consistency between original and horizontally flipped inputs according to the aligned discrepancy of the same sample and spatial scale. DR-CAC is jointly optimized with logits distillation and feature representation alignment. During inference, only the standard POSTER V2-ResNet18 classification path is retained.
 
 ## Requirements
 
@@ -37,7 +37,7 @@ data_preprocessing/
     valid/
 ```
 
-The folder `valid/` is used as the evaluation split in the training scripts.
+The folder name `valid/` follows the implementation convention used by the training scripts. For RAF-DB and CAER-S, it contains the official test split. For FANE, it contains the held-out 20% test split used only for evaluation and not for training or hyperparameter selection.
 
 ## Required Checkpoints
 
@@ -52,67 +52,32 @@ models/pretrain/
   mobilefacenet_model_best.pth.tar
   resnet18_msceleb.pth
 ```
-These checkpoints include publicly available pretrained weights and teacher checkpoints used in this study. The FANE teacher checkpoint was trained by the authors using the POSTER++ architecture because the original POSTER++ paper did not provide a FANE checkpoint.
+These files include pretrained backbone weights and the POSTER++ teacher checkpoints used as knowledge sources in this study. For FANE, a POSTER++ teacher checkpoint was trained under the adopted dataset setting because the original POSTER++ work did not provide a checkpoint for this dataset.
 
-Due to license and file-size considerations, these checkpoint files are not redistributed in this repository. Users should prepare the required files and place them in the specified directory before training.
+Due to license and file-size considerations, the pretrained backbone weights and teacher checkpoints listed above are not redistributed directly in this repository. Users should prepare the required files and place them in the specified directory before training.
 
 
 ## Training
 
-Please run all commands from the project root directory.
+Please run the training scripts from the project root directory.
 
-### RAF-DB
+The dataset-specific training entry points are:
 
-```bash
-python train_distill.py \
-  --data ./data_preprocessing/raf-db-divide-7folders \
-  --epochs 200 \
-  --batch-size 64 \
-  --lr 1.0e-4 \
-  --alpha 0.6 \
-  --temperature 4.0 \
-  --lambda_feature 0.7 \
-  --lambda_na_msac 1.0 \
-  --focal_gamma 2.0
-```
+- RAF-DB: `train_distill.py`
+- CAER-S: `train_distill-cears.py`
+- FANE: `train_distill_9.py`
 
-### CAER-S
+The training settings used for the reported results, including the number of epochs, batch size, learning rate, distillation temperature, loss coefficients, and focal-loss parameter, are described in the manuscript and implemented in the corresponding training scripts.
 
-```bash
-python train_distill-cears.py \
-  --data ./data_preprocessing/CAER-S-divide-7folders \
-  --epochs 250 \
-  --batch-size 96 \
-  --lr 1.5e-4 \
-  --alpha 0.3 \
-  --temperature 4.0 \
-  --lambda_feature 0.7 \
-  --lambda_na_msac 1.0 \
-  --focal_gamma 1.0
-```
-
-### FANE
-
-```bash
-python train_distill_9.py \
-  --data ./data_preprocessing/FANE-divide-9folders \
-  --epochs 200 \
-  --batch-size 128 \
-  --lr 2.0e-4 \
-  --alpha 0.6 \
-  --temperature 4.0 \
-  --lambda_feature 0.7 \
-  --lambda_na_msac 1.0 \
-  --focal_gamma 2.5
-```
+Before training, please ensure that the datasets and required pretrained/teacher checkpoints are organized according to the directory structures described above.
 
 ## Results
 
-| Dataset | Accuracy (%) | Parameters | FLOPs |
-| ------- | -----------: | ---------: | ----: |
-| RAF-DB  |        90.97 |     20.89M | 3.82G |
-| CAER-S  |        92.16 |     20.89M | 3.82G |
-| FANE    |        73.79 |     20.89M | 3.82G |
+| Dataset | Top-1 Accuracy (%) | Parameters | FLOPs |
+| ------- | -----------------: | ---------: | ----: |
+| RAF-DB  |        90.97       |    20.89M  | 3.82G |
+| CAER-S  |        92.16       |    20.89M  | 3.82G |
+| FANE    |        73.79       |    20.89M  | 3.82G |
 
 ## Checkpoints and Logs
 
@@ -130,23 +95,18 @@ log_caers/
 log_Fane/
 ```
 
-The final trained checkpoints corresponding to the reported best results are available from Google Drive:
+The final trained checkpoints corresponding to the reported results are available from Google Drive:
 
 [Google Drive checkpoint folder](https://drive.google.com/drive/folders/17AhweJCFLquS3k7MaTEyw6AoKj5BQPA6?usp=sharing)
 
 ## Code and Data Availability
 
-This repository provides the source code, model definitions, and training scripts used in the manuscript.
+This repository provides the source code, model definitions, and training scripts used in the manuscript. The original datasets and third-party pretrained weights are not redistributed because of their respective licenses and file-size constraints; please obtain them from their original sources.
 
-The original datasets are not redistributed due to license restrictions. Users should download the datasets from their official or public sources and organize them according to the directory structure described above.
-
-The required pretrained weights and teacher checkpoints are not included in this repository due to license and file-size considerations. The final trained checkpoints corresponding to the reported best results are provided through the Google Drive checkpoint folder listed above.
+The final trained POSTER V2-ResNet18 checkpoints corresponding to the reported results are available through the Google Drive link provided above.
 
 ## Citation
 
-If you use this code, please cite:
-
-Wang, D. (2026). POSTER V2-ResNet18 with NA-MSAC (v1.0.1). Zenodo. https://doi.org/10.5281/zenodo.20985138
 
 ## Acknowledgements
 
