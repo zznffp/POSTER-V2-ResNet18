@@ -291,7 +291,7 @@ class pyramid_trans_expr2(nn.Module):
         self.VIT = VisionTransformer(depth=2, embed_dim=embed_dim, num_classes=num_classes)  # Vision Transformer
 
         self.ir_back = Backbone(50, 0.0, 'ir')
-        ir_checkpoint = torch.load(r'/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/ir50.pth',
+        ir_checkpoint = torch.load(r'./models/pretrain/ir50.pth',
                                    map_location=lambda storage, loc: storage)
         self.ir_back = load_pretrained_weights(self.ir_back, ir_checkpoint)
 
