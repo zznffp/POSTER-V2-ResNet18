@@ -1,4 +1,5 @@
 import warnings
+
 warnings.filterwarnings("ignore")
 import os
 import sys
@@ -8,6 +9,7 @@ import random
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,12 +18,16 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from thop import profile
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
+
 from models.PosterV2_7cls import PosterV2_ResNet
 from models.PosterV2_Original import pyramid_trans_expr2
 from models.kd_losses import kd_loss, fitnet_loss, multi_scale_at_loss, SimKDProjector, simkd_loss
+
+# NA-MSAC module (our method, only used for --kd_method ours)
 try:
-    from noise_aware_native_attention import NoiseAwareNativeAttention
+    from discrepancy_regulated_cross_attention_consistency import DiscrepancyRegulatedCrossAttentionConsistency
 
     NA_MSAC_AVAILABLE = True
 except ImportError:
@@ -33,6 +39,15 @@ def compute_kd_baseline_loss(method, args,
                              teacher_output, teacher_features,
                              images, target, student, teacher,
                              criterion_hard, feature_projector, simkd_projector):
+    """Compute the distillation loss for one KD baseline row.
+
+    Returns
+    -------
+    dist_loss    : tensor   total distillation loss (excludes aux loss, added by caller)
+    hard_loss    : tensor   Focal(student_output, target), shared logging slot
+    soft_loss    : tensor   logits-side term for logging (KL / CE_via_teacher / 0)
+    feature_loss : tensor   feature-side term for logging (MSE / AT / 0)
+    """
     device = student_output.device
     hard_loss = criterion_hard(student_output, target)
     soft_loss = torch.zeros((), device=device)
@@ -104,6 +119,9 @@ class FocalLoss(nn.Module):
         return focal_loss
 
 class ContrastiveLoss(nn.Module):
+    """Distance-relation contrastive distillation: align the pairwise
+    similarity structure of student and teacher CLS features."""
+
     def __init__(self, temperature=0.07, use_distance=True):
         super(ContrastiveLoss, self).__init__()
         self.temperature = temperature
@@ -132,6 +150,7 @@ class ContrastiveLoss(nn.Module):
             return (loss_s2t + loss_t2s) / 2.0
 
 def mixup_data(x, y, alpha=0.2, device='cuda'):
+    """mixup (Zhang et al., 2018). Disabled for all KD baselines (A-plan)."""
     lam = np.random.beta(alpha, alpha) if alpha > 0 else 1.0
     batch_size = x.size(0)
     index = torch.randperm(batch_size).to(device)
@@ -144,10 +163,14 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data', type=str,default='./data_preprocessing/val_datasets/raf-db-divide-7folder',help='dataset path')
-parser.add_argument('--teacher_path', type=str, default='./models/pretrain/raf-db-model_best.pth')
-parser.add_argument('--checkpoint_path', type=str, default='./checkpoints/resnet_distill_model.pth')
-parser.add_argument('--best_checkpoint_path', type=str, default='./checkpoints/resnet_distill_model_best.pth')
+parser.add_argument('--data', type=str,
+                    default='/root/autodl-tmp/WDY/POSTER_V2/data_preprocessing/val_datasets/raf-db-divide-7folder',
+                    help='dataset path')
+parser.add_argument('--teacher_path', type=str,
+                    default='/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/raf-db-model_best.pth',
+                    help='Teacher model checkpoint path')
+parser.add_argument('--checkpoint_path', type=str, default='./checkpoint/resnet_distill_model.pth')
+parser.add_argument('--best_checkpoint_path', type=str, default='./checkpoint/resnet_distill_model_best.pth')
 parser.add_argument('--resume', type=str, default='', help='Path to checkpoint to resume from')
 parser.add_argument('--start_epoch', type=int, default=0, help='Manual start epoch (use with --resume)')
 parser.add_argument('--workers', default=4, type=int)
@@ -171,12 +194,15 @@ parser.add_argument('--mixup_alpha', default=0.2, type=float, help='Mixup alpha'
 parser.add_argument('--mixup_prob', default=0.5, type=float, help='Probability of applying Mixup')
 parser.add_argument('--seed', type=int, default=None, help='Random seed (None for time-based)')
 parser.add_argument('--focal_gamma', default=2.0, type=float, help='Focal Loss gamma')
+
+# NA-MSAC (our method) -- forced off for all baselines
 parser.add_argument('--lambda_na_msac', type=float, default=1.0, help='NA-MSAC loss weight (ours only)')
 parser.add_argument('--na_msac_noise_aware', action='store_true', default=True, help='NA-MSAC noise-aware weighting')
 parser.add_argument('--na_msac_noise_threshold', type=float, default=0.3, help='NA-MSAC noise threshold')
 parser.add_argument('--na_msac_class_aware', action='store_true', default=False, help='NA-MSAC class-aware weighting')
 parser.add_argument('--no_na_msac_class_aware', action='store_false', dest='na_msac_class_aware',
                     help='Disable NA-MSAC class-aware weighting')
+
 parser.add_argument('--use_csi', action='store_true', default=False, help='Enable Cross-Scale Interaction')
 parser.add_argument('--no_csi', action='store_false', dest='use_csi', help='Disable Cross-Scale Interaction')
 
@@ -244,6 +270,8 @@ def multilayer_distillation_loss(student_logits, teacher_logits,
                                  labels, temperature, alpha,
                                  lambda_feature, lambda_contrast, criterion_hard, contrastive_criterion,
                                  feature_projector=None):
+    """Full-method ('ours') distillation loss: Hinton KL + normalized CLS/global
+    feature MSE + contrastive distillation. Only used for --kd_method ours."""
     hard_loss = criterion_hard(student_logits, labels)
 
     soft_loss = F.kl_div(
@@ -277,6 +305,8 @@ def multilayer_distillation_loss(student_logits, teacher_logits,
 
 
 def load_teacher_model(checkpoint_path):
+    """Load the frozen POSTER++ teacher."""
+    print("=> Loading teacher model...")
     import sys
     original_recorder = sys.modules['__main__'].__dict__.get('RecorderMeter', None)
     original_recorder1 = sys.modules['__main__'].__dict__.get('RecorderMeter1', None)
@@ -306,11 +336,13 @@ def load_teacher_model(checkpoint_path):
     teacher.eval()
     for param in teacher.parameters():
         param.requires_grad = False
+    print(f"   Teacher model loaded successfully!")
     print(f"   Teacher accuracy: {checkpoint['best_acc']:.2f}%")
     return teacher
 
 
 def get_lr_scheduler(optimizer, warmup_epochs, total_epochs):
+    """Warmup + cosine-annealing schedule."""
 
     def lr_lambda(epoch):
         if epoch < warmup_epochs:
@@ -322,13 +354,14 @@ def get_lr_scheduler(optimizer, warmup_epochs, total_epochs):
 
 
 def main():
-    if not os.path.exists('./checkpoints'):
-        os.makedirs('./checkpoints')
+    if not os.path.exists('./checkpoint'):
+        os.makedirs('./checkpoint')
     if not os.path.exists('./log'):
         os.makedirs('./log')
 
     args = parser.parse_args()
 
+    # ---- A-plan: force our innovations off for every non-'ours' baseline ----
     if args.kd_method != 'ours':
         if args.lambda_na_msac > 0:
             print(f"[{args.kd_method}] force NA-MSAC OFF (lambda_na_msac={args.lambda_na_msac} -> 0)")
@@ -343,6 +376,7 @@ def main():
             print(f"[{args.kd_method}] force Contrast KD OFF (lambda_contrast={args.lambda_contrast} -> 0)")
         args.lambda_contrast = 0.0
 
+    # ---- seed ----
     if args.seed is not None:
         seed = args.seed
         seed_type = "user-specified"
@@ -366,7 +400,7 @@ def main():
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_file = f'./log/train_{args.kd_method}_seed{seed}_{timestamp}.log'
     curve_file = f'./log/train_{args.kd_method}_seed{seed}_{timestamp}_curve.png'
-    args.best_checkpoint_path = f'./checkpoints/resnet_distill_{args.kd_method}_seed{seed}_best_{timestamp}.pth'
+    args.best_checkpoint_path = f'./checkpoint/resnet_distill_{args.kd_method}_seed{seed}_best_{timestamp}.pth'
 
     def log_print(message):
         print(message)
@@ -406,6 +440,7 @@ def main():
     log_print(f"   - Focal Loss gamma: {args.focal_gamma}")
     log_print(f"   - Dropout: {args.dropout}")
     log_print(f"   - Aux loss weight (beta): {args.beta}")
+    log_print(f"   - CSI: {'enabled' if args.use_csi else 'disabled'}")
 
     # ---- KD method-specific banner ----
     log_print(f"\n   === KD Method: [{args.kd_method.upper()}] ===")
@@ -455,7 +490,7 @@ def main():
         if not NA_MSAC_AVAILABLE:
             log_print("   ERROR: NA-MSAC requested but module not available!")
             exit(1)
-        na_msac_module = NoiseAwareNativeAttention(
+        na_msac_module = DiscrepancyRegulatedCrossAttentionConsistency(
             num_classes=7,
             feature_dims=[64, 128, 256],
             feature_sizes=[28, 14, 7],
@@ -611,7 +646,11 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
         images, target = images.cuda(), target.cuda()
 
         if na_msac_module is not None:
-            images_flip = torch.flip(images, dims=[3])
+            # Keep a reference to the *unmixed* images: NA-MSAC compares A(x) with
+            # A(Flip(x)), so the original branch must not see the Mixup-blended
+            # tensor. Mixup replaces `images` in-place below.
+            images_na_msac = images
+            images_flip = torch.flip(images_na_msac, dims=[3])
 
         use_mixup_this_batch = args.use_mixup and np.random.rand() < args.mixup_prob
         if use_mixup_this_batch:
@@ -622,14 +661,17 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
 
             # adapted features + native attention maps (ours / NA-MSAC only)
             if na_msac_module is not None:
-                x1_adapted, x2_adapted, x3_adapted = student.forward_backbone_adapted(images)
+                x1_adapted, x2_adapted, x3_adapted = student.forward_backbone_adapted(images_na_msac)
                 x1_adapted_flip, x2_adapted_flip, x3_adapted_flip = student.forward_backbone_adapted(images_flip)
-                _, _, attn_maps_orig = student(images, return_attention=True)
+                _, _, attn_maps_orig = student(images_na_msac, return_attention=True)
                 _, _, attn_maps_flip = student(images_flip, return_attention=True)
 
             with torch.no_grad():
                 teacher_output, _, _, teacher_features = teacher(images, return_features=True)
 
+            # =====================================================
+            #  Loss dispatch: 'ours' vs the four KD baselines
+            # =====================================================
             if not is_ours:
                 # ----- KD baselines (kd / fitnet / at / simkd) -----
                 dist_loss, hard_loss, soft_loss, feature_loss = compute_kd_baseline_loss(
@@ -806,4 +848,3 @@ def accuracy(output, target, topk=(1,)):
 
 if __name__ == '__main__':
     main()
-
