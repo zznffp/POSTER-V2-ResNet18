@@ -4,6 +4,9 @@ from torch.nn import functional as F
 import torchvision.models as models
 from timm.models.layers import DropPath
 
+# =========================================================================
+#    mobilefacenet.py  vit_model.py
+# =========================================================================
 try:
     from mobilefacenet import MobileFaceNet
     from vit_model import VisionTransformer, PatchEmbed
@@ -45,7 +48,7 @@ class WindowAttentionGlobal(nn.Module):
         self.scale = qk_scale or head_dim ** -0.5
         self.relative_position_bias_table = nn.Parameter(
             torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))
-
+        
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
         coords = torch.stack(torch.meshgrid([coords_h, coords_w]))
@@ -65,6 +68,16 @@ class WindowAttentionGlobal(nn.Module):
         trunc_normal_(self.relative_position_bias_table, std=.02)
 
     def forward(self, x, q_global, return_attention=False):
+        """
+        Args:
+            x: input features [B_, N, C]
+            q_global: global query [B, num_heads, N, head_dim]
+            return_attention: whether to return the attention map
+
+        Returns:
+            x: output features [B_, N, C]
+            attn_map (optional): attention map [B, H, W]
+        """
         B_, N, C = x.shape
         B = q_global.shape[0]
         head_dim = int(torch.div(C, self.num_heads).item())
@@ -83,13 +96,16 @@ class WindowAttentionGlobal(nn.Module):
         attn = self.attn_drop(attn)
 
         if return_attention:
+            # attn: [B_, num_heads, N, N]
             attn_avg = attn.mean(dim=1)  # [B_, N, N]
 
-            attn_map = attn_avg.sum(dim=1)  # [B_, N] - sum over each column
+            attn_map = attn_avg.sum(dim=1)
 
+            # N = window_size * window_size
             H = W = self.window_size[0]
             attn_map = attn_map.view(B_, H, W)  # [B_, H, W]
 
+            # B_ = B * num_windows
             attn_map = attn_map.view(B, B_dim, H, W)  # [B, num_windows, H, W]
             attn_map = attn_map.mean(dim=1)  # [B, H, W]
 
@@ -114,6 +130,16 @@ def _to_query(x, N, num_heads, dim_head):
 
 
 class CrossScaleInteraction(nn.Module):
+    """
+    Cross-Scale Interaction (CSI) module.
+
+    Lets features from three scales interact explicitly instead of being simply concatenated.
+    - t1 (fine-grained): obtains global semantic information from t3
+    - t3 (coarse-grained): obtains local detail information from t1
+    - t2 (medium-grained): obtains complementary information from t1 and t3
+
+    Parameters: 73,728 (0.37%)
+    """
     def __init__(self, dim1=512, dim2=512, dim3=512, hidden_dim=64, num_heads=4):
         super().__init__()
 
@@ -131,9 +157,19 @@ class CrossScaleInteraction(nn.Module):
         self.back_proj2 = nn.Linear(hidden_dim, dim2)
         self.back_proj3 = nn.Linear(hidden_dim, dim3)
 
+        # Layer Norm
         self.norm = nn.LayerNorm(hidden_dim)
 
     def forward(self, t1, t2, t3):
+        """
+        Args:
+            t1: [B, N1, C1] - fine-grained features (196 tokens, 512 dims)
+            t2: [B, N2, C2] - medium-grained features (196 tokens, 512 dims)
+            t3: [B, N3, C3] - coarse-grained features (49 tokens, 512 dims)
+
+        Returns:
+            t1_out, t2_out, t3_out: enhanced features
+        """
         t1_proj = self.proj1(t1)  # [B, 196, 64]
         t2_proj = self.proj2(t2)  # [B, 196, 64]
         t3_proj = self.proj3(t3)  # [B, 49, 64]
@@ -203,25 +239,29 @@ class PosterV2_ResNet(nn.Module):
     def __init__(self, img_size=224, num_classes=9, dims=[64, 128, 256], window_size=[28, 14, 7], dropout=0.0, use_csi=True):
         super().__init__()
         self.use_csi = use_csi
-
+        
+        # 1.  MobileFaceNet
         self.face_landback = MobileFaceNet([112, 112], 136)
-
-        checkpoint_path = './models/pretrain/mobilefacenet_model_best.pth.tar'
-
+        
+        checkpoint_path = '/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/mobilefacenet_model_best.pth.tar'
+        # ====================================
+        
         try:
             ckpt = torch.load(checkpoint_path, map_location='cpu')
             self.face_landback.load_state_dict(ckpt['state_dict'])
         except FileNotFoundError:
             print(f"[Warning] MobileFaceNet checkpoint not found at {checkpoint_path}. Using random init.")
-
+            
         for p in self.face_landback.parameters():
             p.requires_grad = False
         self.last_face_conv = nn.Conv2d(512, 256, kernel_size=3, padding=1)
 
+        # 2.  ResNet18
         print(f"Loading ResNet18 Backbone with MS-Celeb pretrained weights...")
         resnet = models.resnet18(pretrained=False)
 
-        pretrain_path = './models/pretrain/resnet18_msceleb.pth'
+        #  resnet18_msceleb.pth
+        pretrain_path = '/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/resnet18_msceleb.pth'
         try:
             checkpoint = torch.load(pretrain_path, map_location='cpu')
             state_dict = checkpoint['state_dict']
@@ -235,7 +275,7 @@ class PosterV2_ResNet(nn.Module):
             print(f"   Loaded {len(pretrained_dict)} layers (excluding fc layer)")
         except FileNotFoundError:
             print(f"[Warning] MS-Celeb checkpoint not found at {pretrain_path}. Using random init.")
-
+        
         self.stem = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool)
         self.layer1 = resnet.layer1 # 64ch, 56x56
         self.layer2 = resnet.layer2 # 128ch, 28x28 -> Level 1
@@ -246,6 +286,7 @@ class PosterV2_ResNet(nn.Module):
         self.adapt2 = nn.Sequential(nn.Conv2d(256, dims[1], 1, bias=False), nn.BatchNorm2d(dims[1]), nn.ReLU())
         self.adapt3 = nn.Sequential(nn.Conv2d(512, dims[2], 1, bias=False), nn.BatchNorm2d(dims[2]), nn.ReLU())
 
+        # 4. Attention & ViT
         self.window1 = window(window_size[0], dims[0])
         self.window2 = window(window_size[1], dims[1])
         self.window3 = window(window_size[2], dims[2])
@@ -258,8 +299,8 @@ class PosterV2_ResNet(nn.Module):
         self.ffn2 = feedforward(dims[1], window_size[1])
         self.ffn3 = feedforward(dims[2], window_size[2])
 
-        self.embed_q = nn.Conv2d(dims[0], 512, 3, 2, 1) # 28 -> 14 [compress: 768->640->512]
-        self.embed_k = nn.Conv2d(dims[1], 512, 3, 1, 1) # 14 -> 14 [compress: 768->640->512]
+        self.embed_q = nn.Conv2d(dims[0], 512, 3, 2, 1)
+        self.embed_k = nn.Conv2d(dims[1], 512, 3, 1, 1)
         self.embed_v = PatchEmbed(img_size=7, patch_size=1, in_c=dims[2], embed_dim=512)
 
         self.cross_scale_interaction = CrossScaleInteraction(
@@ -278,6 +319,14 @@ class PosterV2_ResNet(nn.Module):
         return x1, x2, x3
 
     def forward_backbone_adapted(self, x):
+        """
+        Return features after the adapt layers (used by DR-CAC).
+
+        Returns:
+            x1_adapted: [B, 64, 28, 28]
+            x2_adapted: [B, 128, 14, 14]
+            x3_adapted: [B, 256, 7, 7]
+        """
         x1, x2, x3 = self.forward_backbone(x)
         x1_adapted = self.adapt1(x1)
         x2_adapted = self.adapt2(x2)
@@ -285,6 +334,18 @@ class PosterV2_ResNet(nn.Module):
         return x1_adapted, x2_adapted, x3_adapted
 
     def forward(self, x, return_features=False, return_all_layers=False, return_attention=False):
+        """
+        Args:
+            x: input image [B, 3, H, W]
+            return_features: if True, return intermediate features for distillation
+            return_all_layers: if True, return features from all transformer layers
+            return_attention: if True, return attention maps from WindowAttentionGlobal
+        Returns:
+            if return_features=False and return_attention=False: (output, aux_output)
+            if return_features=True and return_all_layers=False: (output, aux_output, tokens, features)
+            if return_features=True and return_all_layers=True: (output, aux_output, tokens, features, layer_features)
+            if return_attention=True: (output, aux_output, attn_maps) where attn_maps = [attn1, attn2, attn3]
+        """
         # Face Branch
         x_face = F.interpolate(x, size=112)
         f1, f2, f3 = self.face_landback(x_face)
@@ -343,4 +404,3 @@ class PosterV2_ResNet(nn.Module):
         else:
             output, aux_output = self.VIT(tokens, return_features=False, return_all_layers=False)
             return output, aux_output
-
