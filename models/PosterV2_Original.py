@@ -7,58 +7,74 @@ from .vit_model import VisionTransformer, PatchEmbed
 from timm.models.layers import trunc_normal_, DropPath
 from thop import profile
 
-
 def load_pretrained_weights(model, checkpoint):
+    """Load pretrained weights into the model."""
     import collections
     if 'state_dict' in checkpoint:
-        state_dict = checkpoint['state_dict']  # extract the state dict
+        state_dict = checkpoint['state_dict']
     else:
         state_dict = checkpoint
-    model_dict = model.state_dict()  # get the model's current state dict
-    new_state_dict = collections.OrderedDict()  # create a new ordered dict
-    matched_layers, discarded_layers = [], []  # record matched and discarded layers
+    model_dict = model.state_dict()
+    new_state_dict = collections.OrderedDict()
+    matched_layers, discarded_layers = [], []
     for k, v in state_dict.items():
         if k.startswith('module.'):
             k = k[7:]
         if k in model_dict and model_dict[k].size() == v.size():
-            new_state_dict[k] = v  # add matched layer to the new dict
+            new_state_dict[k] = v
             matched_layers.append(k)
         else:
-            discarded_layers.append(k)  # record unmatched layer
-    model_dict.update(new_state_dict)  # update the model dict
+            discarded_layers.append(k)
+    # new_state_dict.requires_grad = False
+    model_dict.update(new_state_dict)
 
-    model.load_state_dict(model_dict)  # load the updated state dict
-    print('load_weight', len(matched_layers))  # print the number of matched layers
+    model.load_state_dict(model_dict)
+    print('load_weight', len(matched_layers))
     return model
 
 
 def window_partition(x, window_size, h_w, w_w):
+    """
+    Partition a feature map into local windows.
+    Args:
+        x: (B, H, W, C) input feature map
+        window_size: window size
+
+    Returns:
+        local window features (num_windows*B, window_size, window_size, C)
+    """
     B, H, W, C = x.shape
-    x = x.view(B, h_w, window_size, w_w, window_size, C)  # reshape into window form
-    windows = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)  # permute and flatten
+    x = x.view(B, h_w, window_size, w_w, window_size, C)
+    windows = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)
     return windows
 
 
 class window(nn.Module):
+    """Window partition module."""
+
     def __init__(self, window_size, dim):
         super(window, self).__init__()
-        self.window_size = window_size  # window size
-        self.norm = nn.LayerNorm(dim)  # layer normalization
+        self.window_size = window_size
+        self.norm = nn.LayerNorm(dim)
 
     def forward(self, x):
-        x = x.permute(0, 2, 3, 1)  # to channel-last format (B, H, W, C)
+        x = x.permute(0, 2, 3, 1)
         B, H, W, C = x.shape
-        x = self.norm(x)  # apply layer normalization
-        shortcut = x  # save the shortcut
-        h_w = int(torch.div(H, self.window_size).item())  # number of windows along height
-        w_w = int(torch.div(W, self.window_size).item())  # number of windows along width
+        x = self.norm(x)
+        shortcut = x
+        h_w = int(torch.div(H, self.window_size).item())
+        w_w = int(torch.div(W, self.window_size).item())
 
-        x_windows = window_partition(x, self.window_size, h_w, w_w)  # split windows
-        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)  # flatten windows
+        x_windows = window_partition(x, self.window_size, h_w, w_w)
+        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
         return x_windows, shortcut
 
 
 class WindowAttentionGlobal(nn.Module):
+    """
+    Global window attention, following "Global Context Vision Transformers".
+    """
+
     def __init__(self,
                  dim,
                  num_heads,
@@ -68,89 +84,130 @@ class WindowAttentionGlobal(nn.Module):
                  attn_drop=0.,
                  proj_drop=0.,
                  ):
+        """
+        Args:
+            dim: feature dimension
+            num_heads: number of attention heads
+            window_size: window size
+            qkv_bias: whether to use a learnable bias for query, key and value
+            qk_scale: optional scaling factor for query and key
+            attn_drop: attention dropout rate
+            proj_drop: output dropout rate
+        """
 
         super().__init__()
-        window_size = (window_size, window_size)  # window size
+        window_size = (window_size, window_size)
         self.window_size = window_size
-        self.num_heads = num_heads  # number of attention heads
-        head_dim = torch.div(dim, num_heads)  # dimension per head
-        self.scale = qk_scale or head_dim ** -0.5  # scaling factor
+        self.num_heads = num_heads
+        head_dim = torch.div(dim, num_heads)
+        self.scale = qk_scale or head_dim ** -0.5
         self.relative_position_bias_table = nn.Parameter(
             torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
         coords = torch.stack(torch.meshgrid([coords_h, coords_w]))
-        coords_flatten = torch.flatten(coords, 1)  # flatten coordinates
+        coords_flatten = torch.flatten(coords, 1)
         relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]
         relative_coords = relative_coords.permute(1, 2, 0).contiguous()
         relative_coords[:, :, 0] += self.window_size[0] - 1
         relative_coords[:, :, 1] += self.window_size[1] - 1
         relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
-        relative_position_index = relative_coords.sum(-1)  # relative position index
-        self.register_buffer("relative_position_index", relative_position_index)  # register buffer
-        self.qkv = nn.Linear(dim, dim * 2, bias=qkv_bias)  # QKV linear projection
-        self.attn_drop = nn.Dropout(attn_drop)  # attention dropout
-        self.proj = nn.Linear(dim, dim)  # projection layer
-        self.proj_drop = nn.Dropout(proj_drop)  # projection dropout
-        trunc_normal_(self.relative_position_bias_table, std=.02)  # truncated normal init
-        self.softmax = nn.Softmax(dim=-1)  # softmax activation
+        relative_position_index = relative_coords.sum(-1)
+        self.register_buffer("relative_position_index", relative_position_index)
+        self.qkv = nn.Linear(dim, dim * 2, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+        trunc_normal_(self.relative_position_bias_table, std=.02)
+        self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, q_global):
         B_, N, C = x.shape
         B = q_global.shape[0]
-        head_dim = int(torch.div(C, self.num_heads).item())  # dimension per head
-        B_dim = int(torch.div(B_, B).item())  # batch dimension
+        head_dim = int(torch.div(C, self.num_heads).item())
+        B_dim = int(torch.div(B_, B).item())
 
         kv = self.qkv(x).reshape(B_, N, 2, self.num_heads, head_dim).permute(2, 0, 3, 1, 4)
-        k, v = kv[0], kv[1]  # separate key and value
-        q_global = q_global.repeat(1, B_dim, 1, 1, 1)  # repeat the global query
+        k, v = kv[0], kv[1]
+        q_global = q_global.repeat(1, B_dim, 1, 1, 1)
 
-        q = q_global.reshape(B_, self.num_heads, N, head_dim)  # reshape the query
-        q = q * self.scale  # scale the query
-        attn = (q @ k.transpose(-2, -1))  # compute attention scores
+        q = q_global.reshape(B_, self.num_heads, N, head_dim)
+        q = q * self.scale
+        attn = (q @ k.transpose(-2, -1))
         relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
             self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
 
-        attn = attn + relative_position_bias.unsqueeze(0)  # add bias
-        attn = self.softmax(attn)  # softmax normalization
-        attn = self.attn_drop(attn)  # apply dropout
+        attn = attn + relative_position_bias.unsqueeze(0)
+        attn = self.softmax(attn)
+        attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B_, N, C)  # apply attention weights
-        x = self.proj(x)  # projection transform
-        x = self.proj_drop(x)  # apply dropout
+        x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
         return x
+
+    """
+    class WindowAttentionGlobal(nn.Module):
+    def forward(self, x, q_global):
+        x_windows = window_partition(x, self.window_size, h_w, w_w)      
+        kv = self.qkv(x).reshape(B_, N, 2, self.num_heads, head_dim)
+        q = q_global.reshape(B_, self.num_heads, N, head_dim)   
+        x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
+        return x
+    """
 
 
 def _to_channel_last(x):
+    """
+    Convert features from channels-first to channels-last layout.
+    Args:
+        x: (B, C, H, W)
+    Returns:
+        x: (B, H, W, C)
+    """
     return x.permute(0, 2, 3, 1)
 
 
 def _to_channel_first(x):
+    """Convert features from channels-last to channels-first layout."""
     return x.permute(0, 3, 1, 2)
 
 
 def _to_query(x, N, num_heads, dim_head):
+    """Convert features into query format."""
     B = x.shape[0]
     x = x.reshape(B, 1, N, num_heads, dim_head).permute(0, 1, 3, 2, 4)
     return x
 
 
 class Mlp(nn.Module):
+    """
+    Multi-layer perceptron (MLP) module.
+    """
+
     def __init__(self,
                  in_features,
                  hidden_features=None,
                  out_features=None,
                  act_layer=nn.GELU,
                  drop=0.):
+        """
+        Args:
+            in_features: input feature dimension
+            hidden_features: hidden feature dimension
+            out_features: output feature dimension
+            act_layer: activation layer
+            drop: dropout rate
+        """
 
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
-        self.fc1 = nn.Linear(in_features, hidden_features)  # first fully connected layer
-        self.act = act_layer()  # activation function
-        self.fc2 = nn.Linear(hidden_features, out_features)  # second fully connected layer
-        self.drop = nn.Dropout(drop)  # dropout layer
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
 
     def forward(self, x):
         x = self.fc1(x)
@@ -162,13 +219,25 @@ class Mlp(nn.Module):
 
 
 def window_reverse(windows, window_size, H, W, h_w, w_w):
-    B = int(windows.shape[0] / (H * W / window_size / window_size))  # compute batch size
+    """
+    Reverse local window features back into a full feature map.
+    Args:
+        windows: local window features (num_windows*B, window_size, window_size, C)
+        window_size: window size
+        H: image height
+        W: image width
+    Returns:
+        x: (B, H, W, C)
+    """
+    B = int(windows.shape[0] / (H * W / window_size / window_size))
     x = windows.view(B, h_w, w_w, window_size, window_size, -1)
-    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)  # permute and reshape
+    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
     return x
 
 
 class feedforward(nn.Module):
+    """Feed-forward network module."""
+
     def __init__(self, dim, window_size, mlp_ratio=4., act_layer=nn.GELU, drop=0., drop_path=0., layer_scale=None):
         super(feedforward, self).__init__()
         if layer_scale is not None and type(layer_scale) in [int, float]:
@@ -180,37 +249,39 @@ class feedforward(nn.Module):
             self.gamma2 = 1.0
         self.window_size = window_size
         self.mlp = Mlp(in_features=dim, hidden_features=int(dim * mlp_ratio), act_layer=act_layer, drop=drop)  # MLP
-        self.norm = nn.LayerNorm(dim)  # layer normalization
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()  # stochastic depth dropout
+        self.norm = nn.LayerNorm(dim)
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
     def forward(self, attn_windows, shortcut):
         B, H, W, C = shortcut.shape
-        h_w = int(torch.div(H, self.window_size).item())  # number of windows along height
-        w_w = int(torch.div(W, self.window_size).item())  # number of windows along width
-        x = window_reverse(attn_windows, self.window_size, H, W, h_w, w_w)  # restore windows
-        x = shortcut + self.drop_path(self.gamma1 * x)  # add shortcut
-        x = x + self.drop_path(self.gamma2 * self.mlp(self.norm(x)))  # add MLP output
+        h_w = int(torch.div(H, self.window_size).item())
+        w_w = int(torch.div(W, self.window_size).item())
+        x = window_reverse(attn_windows, self.window_size, H, W, h_w, w_w)
+        x = shortcut + self.drop_path(self.gamma1 * x)
+        x = x + self.drop_path(self.gamma2 * self.mlp(self.norm(x)))
         return x
 
 
 class pyramid_trans_expr2(nn.Module):
+    """Pyramid Transformer model for facial expression recognition."""
+
     def __init__(self, img_size=224, num_classes=7, window_size=[28, 14, 7], num_heads=[2, 4, 8], dims=[64, 128, 256],
                  embed_dim=768):
         super().__init__()
 
-        self.img_size = img_size  # input image size
-        self.num_heads = num_heads  # number of attention heads per level
-        self.dim_head = []  # dimension per head for each level
+        self.img_size = img_size
+        self.num_heads = num_heads
+        self.dim_head = []
         for num_head, dim in zip(num_heads, dims):
             self.dim_head.append(int(torch.div(dim, num_head).item()))
-        self.num_classes = num_classes  # number of classification classes
-        self.window_size = window_size  # window size per level
-        self.N = [win * win for win in window_size]  # number of patches per window for each level
+        self.num_classes = num_classes
+        self.window_size = window_size
+        self.N = [win * win for win in window_size]
 
         self.face_landback = MobileFaceNet([112, 112], 136)
 
         face_landback_checkpoint = torch.load(
-            r'./models/pretrain/mobilefacenet_model_best.pth.tar',
+            r'/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/mobilefacenet_model_best.pth.tar',
             map_location=lambda storage, loc: storage)
         self.face_landback.load_state_dict(face_landback_checkpoint['state_dict'])
 
@@ -220,9 +291,9 @@ class pyramid_trans_expr2(nn.Module):
         self.VIT = VisionTransformer(depth=2, embed_dim=embed_dim, num_classes=num_classes)  # Vision Transformer
 
         self.ir_back = Backbone(50, 0.0, 'ir')
-        ir_checkpoint = torch.load(r'./models/pretrain/ir50.pth',
+        ir_checkpoint = torch.load(r'/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/ir50.pth',
                                    map_location=lambda storage, loc: storage)
-        self.ir_back = load_pretrained_weights(self.ir_back, ir_checkpoint)  # load pretrained weights
+        self.ir_back = load_pretrained_weights(self.ir_back, ir_checkpoint)
 
         self.attn1 = WindowAttentionGlobal(dim=dims[0], num_heads=num_heads[0], window_size=window_size[0])
         self.attn2 = WindowAttentionGlobal(dim=dims[1], num_heads=num_heads[1], window_size=window_size[1])
@@ -246,19 +317,18 @@ class pyramid_trans_expr2(nn.Module):
         self.embed_q = nn.Sequential(nn.Conv2d(dims[0], 768, kernel_size=3, stride=2, padding=1),
                                      nn.Conv2d(768, 768, kernel_size=3, stride=2, padding=1))
         self.embed_k = nn.Sequential(nn.Conv2d(dims[1], 768, kernel_size=3, stride=2, padding=1))
-        self.embed_v = PatchEmbed(img_size=14, patch_size=14, in_c=256, embed_dim=768)  # patch embedding
+        self.embed_v = PatchEmbed(img_size=14, patch_size=14, in_c=256, embed_dim=768)
 
     def forward(self, x, return_features=False):
 
-        x_face = F.interpolate(x, size=112)  # resize input to 112x112
-        x_face1, x_face2, x_face3 = self.face_landback(x_face)  # extract multi-scale landmark features
-        x_face3 = self.last_face_conv(x_face3)  # final face feature conv
+        x_face = F.interpolate(x, size=112)
+        x_face1, x_face2, x_face3 = self.face_landback(x_face)
+        x_face3 = self.last_face_conv(x_face3)
         x_face1, x_face2, x_face3 = _to_channel_last(x_face1), _to_channel_last(x_face2), _to_channel_last(x_face3)
 
         q1, q2, q3 = _to_query(x_face1, self.N[0], self.num_heads[0], self.dim_head[0]), \
             _to_query(x_face2, self.N[1], self.num_heads[1], self.dim_head[1]), \
             _to_query(x_face3, self.N[2], self.num_heads[2], self.dim_head[2])
-
         x_ir1, x_ir2, x_ir3 = self.ir_back(x)
 
         x_ir1, x_ir2, x_ir3 = self.conv1(x_ir1), self.conv2(x_ir2), self.conv3(x_ir3)
@@ -272,17 +342,16 @@ class pyramid_trans_expr2(nn.Module):
         o1, o2, o3 = self.embed_q(o1).flatten(2).transpose(1, 2), self.embed_k(o2).flatten(2).transpose(1,
                                                                                                         2), self.embed_v(
             o3)
-        o = torch.cat([o1, o2, o3], dim=1)  # concatenate along the sequence dimension
+        o = torch.cat([o1, o2, o3], dim=1)
 
         if return_features:
             return self.VIT(o, return_features=True)
         else:
             out = self.VIT(o)
             return out
-
-
 def compute_param_flop():
+    """Compute model parameters and FLOPs."""
     model = pyramid_trans_expr2()
-    img = torch.rand(size=(1, 3, 224, 224))  # generate random input
-    flops, params = profile(model, inputs=(img,))  # compute FLOPs and params
-    print(f'flops:{flops / 1000 ** 3}G,params:{params / 1000 ** 2}M')  # print result
+    img = torch.rand(size=(1, 3, 224, 224))
+    flops, params = profile(model, inputs=(img,))
+    print(f'flops:{flops / 1000 ** 3}G,params:{params / 1000 ** 2}M')
