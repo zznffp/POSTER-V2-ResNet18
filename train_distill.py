@@ -22,11 +22,10 @@ except ImportError:
     MIXUP_AC_AVAILABLE = False
 
 try:
-    from noise_aware_native_attention import NoiseAwareNativeAttention
+    from discrepancy_regulated_cross_attention_consistency import DiscrepancyRegulatedCrossAttentionConsistency
 
     NA_MSAC_AVAILABLE = True
 except ImportError:
-    print("Warning: NA-MSAC module not found. --lambda_na_msac will be disabled.")
     NA_MSAC_AVAILABLE = False
 
 from torch.utils.data import DataLoader
@@ -34,6 +33,7 @@ from thop import profile
 
 
 class FocalLoss(nn.Module):
+
     def __init__(self, alpha=1.0, gamma=2.0, reduction='mean'):
         super(FocalLoss, self).__init__()
         self.alpha = alpha
@@ -54,12 +54,25 @@ class FocalLoss(nn.Module):
 
 
 class ContrastiveLoss(nn.Module):
+    """
+    Contrastive loss adopting the distance-similarity idea from QCS.
+    Teaches the student the relative sample-to-sample relationships in the
+    teacher's representation space.
+    """
+
     def __init__(self, temperature=0.07, use_distance=True):
         super(ContrastiveLoss, self).__init__()
         self.temperature = temperature
         self.use_distance = use_distance
 
     def forward(self, student_features, teacher_features):
+        """
+        Args:
+            student_features: [B, D] student features
+            teacher_features: [B, D] teacher features
+        Returns:
+            contrastive_loss: contrastive loss
+        """
         batch_size = student_features.shape[0]
 
         student_features = F.normalize(student_features, p=2, dim=1)
@@ -94,6 +107,12 @@ class ContrastiveLoss(nn.Module):
             return contrastive_loss
 
 def mixup_data(x, y, alpha=0.2, device='cuda'):
+    """
+    Mixup augmentation
+    Paper: "mixup: Beyond Empirical Risk Minimization" (Zhang et al., 2018)
+
+    Blends two samples and their labels to improve generalization.
+    """
     if alpha > 0:
         lam = np.random.beta(alpha, alpha)
     else:
@@ -109,21 +128,27 @@ def mixup_data(x, y, alpha=0.2, device='cuda'):
 
 
 def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    """Mixup loss."""
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
 
 from models.PosterV2_7cls import PosterV2_ResNet
 from models.PosterV2_Original import pyramid_trans_expr2
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data', type=str, default='./data_preprocessing/raf-db-divide-7folders', help='dataset path')
-parser.add_argument('--teacher_path', type=str, default='./models/pretrain/raf-db-model_best.pth')
-parser.add_argument('--checkpoint_path', type=str, default='./checkpoints/RAF-DB_resnet_distill_model.pth')
-parser.add_argument('--best_checkpoint_path', type=str, default='./checkpoints/resnet_distill_model_best.pth')
-parser.add_argument('--resume', type=str, default='', help='Path to checkpoints to resume from')
+parser.add_argument('--data', type=str,
+                    default='/root/autodl-tmp/WDY/POSTER_V2/data_preprocessing/val_datasets/raf-db-divide-7folder',
+                    help='dataset path')
+parser.add_argument('--teacher_path', type=str,
+                    default='/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/raf-db-model_best.pth',
+                    help='Teacher model checkpoint path')
+parser.add_argument('--checkpoint_path', type=str, default='./checkpoint/resnet_distill_model.pth')
+parser.add_argument('--best_checkpoint_path', type=str, default='./checkpoint/resnet_distill_model_best.pth')
+parser.add_argument('--resume', type=str, default='', help='Path to checkpoint to resume from')
 parser.add_argument('--start_epoch', type=int, default=0, help='Manual start epoch (use with --resume)')
 parser.add_argument('--workers', default=4, type=int)
 parser.add_argument('--epochs', default=200, type=int)
-parser.add_argument('--batch-size', default=64, type=int, help='Total Batch Size')
+parser.add_argument('--batch-size', default=64, type=int, help='Total batch size')
 parser.add_argument('--lr', default=0.0001, type=float, help='Learning Rate')
 parser.add_argument('--beta', default=0.5, type=float, help='Aux Loss Weight')
 parser.add_argument('--alpha', default=0.6, type=float, help='Distillation Loss Weight (0-1)')
@@ -145,24 +170,34 @@ parser.add_argument('--mixup_alpha', default=0.2, type=float, help='Mixup alpha 
 parser.add_argument('--seed', type=int, default=None, help='Random seed (None for time-based random seed)')
 parser.add_argument('--mixup_prob', default=0.5, type=float, help='Probability of applying Mixup')
 parser.add_argument('--focal_gamma', default=2.0, type=float, help='Focal Loss gamma parameter')
+
 parser.add_argument('--use_mixup_ac', action='store_true', default=False,
                     help='Use Mixup Consistency AC (default: False)')
 parser.add_argument('--no_mixup_ac', action='store_false', dest='use_mixup_ac', help='Disable Mixup Consistency AC')
 parser.add_argument('--lambda_mixup_ac', default=0.5, type=float, help='Mixup AC Loss weight')
+
 parser.add_argument('--lambda_na_msac', type=float, default=1.0,
-                    help='NA-MSAC loss ')
+                    help='NA-MSAC loss weight (recommended: 0.5-1.0, default: 1.0)')
 parser.add_argument('--na_msac_noise_aware', action='store_true', default=True,
-                    help='NA-MSAC:  True')
+                    help='NA-MSAC: enable the noise-aware mechanism (default: True)')
+parser.add_argument('--no_na_msac_noise_aware', action='store_false', dest='na_msac_noise_aware',
+                    help='NA-MSAC: disable the noise-aware mechanism (ablation: w/o Noise-Aware)')
 parser.add_argument('--na_msac_noise_threshold', type=float, default=0.3,
-                    help='NA-MSAC: 0.3')
+                    help='NA-MSAC: noise-aware threshold (default: 0.3)')
 parser.add_argument('--na_msac_class_aware', action='store_true', default=False,
-                    help='NA-MSAC:  False')
+                    help='NA-MSAC: enable class-aware weighting (default: False)')
 parser.add_argument('--no_na_msac_class_aware', action='store_false', dest='na_msac_class_aware',
-                    help='NA-MSAC: False')
+                    help='NA-MSAC: disable class-aware weighting')
+parser.add_argument('--na_msac_single_scale', action='store_true', default=False,
+                    help='NA-MSAC: use a single scale only (ablation: w/o Multi-Scale)')
+parser.add_argument('--na_msac_single_scale_index', type=int, default=0, choices=[0, 1, 2],
+                    help='NA-MSAC: single-scale index 0=28x28, 1=14x14, 2=7x7 (use with --na_msac_single_scale)')
+
 parser.add_argument('--use_csi', action='store_true', default=False,
-                    help='Cross-Scale Interaction,false')
+                    help='Enable CSI (Cross-Scale Interaction)')
 parser.add_argument('--no_csi', action='store_false', dest='use_csi',
-                    help='false')
+                    help='Disable CSI')
+
 args = parser.parse_args()
 
 
@@ -213,6 +248,8 @@ class RecorderMeter(object):
 
 
 class LabelSmoothingCrossEntropy(nn.Module):
+    """Label smoothing loss."""
+
     def __init__(self, smoothing=0.1):
         super().__init__()
         self.smoothing = smoothing
@@ -224,6 +261,7 @@ class LabelSmoothingCrossEntropy(nn.Module):
         log_prob = F.log_softmax(pred, dim=1)
         loss = -(one_hot * log_prob).sum(dim=1).mean()
         return loss
+
 
 def multilayer_distillation_loss(student_logits, teacher_logits,
                                  student_features, teacher_features,
@@ -274,6 +312,7 @@ def multilayer_distillation_loss(student_logits, teacher_logits,
 
 
 def load_teacher_model(checkpoint_path):
+    """Load the teacher model."""
     print("=> Loading teacher model...")
 
     import sys
@@ -319,6 +358,7 @@ def load_teacher_model(checkpoint_path):
 
 
 def get_lr_scheduler(optimizer, warmup_epochs, total_epochs):
+    """Create an LR scheduler with warmup."""
 
     def lr_lambda(epoch):
         if epoch < warmup_epochs:
@@ -332,12 +372,14 @@ def get_lr_scheduler(optimizer, warmup_epochs, total_epochs):
 
 
 def main():
-    if not os.path.exists('checkpoints'): os.makedirs('checkpoints')
+    if not os.path.exists('./checkpoint'): os.makedirs('./checkpoint')
     if not os.path.exists('./log'): os.makedirs('./log')
 
     args = parser.parse_args()
+
     import random
     import time
+
     if args.seed is not None:
         seed = args.seed
         seed_type = "user-specified"
@@ -363,9 +405,10 @@ def main():
     log_file = f'./log/train_seed{seed}_{timestamp}.log'
     curve_file = f'./log/train_seed{seed}_{timestamp}_curve.png'
 
-    args.best_checkpoint_path = f'checkpoints/resnet_distill_seed{seed}_best_{timestamp}.pth'
+    args.best_checkpoint_path = f'./checkpoint/resnet_distill_seed{seed}_best_{timestamp}.pth'
 
     def log_print(message):
+        """Print to both the console and the log file."""
         print(message)
         with open(log_file, 'a', encoding='utf-8') as f:
             f.write(message + '\n')
@@ -401,6 +444,16 @@ def main():
     log_print(f"   - Warmup epochs: {args.warmup_epochs}")
     log_print(f"   - LR Scheduler: Warmup + Cosine Annealing")
     log_print(f"   -Distillation alpha: {args.alpha}")
+    
+    log_print(f"   - Temperature: {args.temperature}")
+    log_print(f"   - Focal Loss gamma: {args.focal_gamma}")
+    log_print(f"   - Mixup: {args.use_mixup} (alpha={args.mixup_alpha}, prob={args.mixup_prob})")
+    log_print(f"   - Dropout: {args.dropout}")
+    log_print(f"   - CSI: {'enabled' if args.use_csi else 'disabled'}")
+    log_print(f"   - Lambda feature: {args.lambda_feature}")
+    log_print(f"   - Lambda contrast: {args.lambda_contrast} (QCS-style: {args.use_distance_contrast})")
+    log_print(f"   - Lambda proto: {args.lambda_proto} (Prototype Alignment)")
+    log_print(f"   - Contrast temperature: {args.contrast_temperature}")
     log_print("-" * 80)
 
     student = student.cuda()
@@ -413,6 +466,8 @@ def main():
     mixup_ac_module = None
     if args.use_mixup_ac:
         if not MIXUP_AC_AVAILABLE:
+            log_print("   ERROR: Mixup AC requested but module not available!")
+            log_print("   Please check models/mixup_consistency_ac.py exists")
             exit(1)
 
         mixup_ac_module = MixupConsistencyAC(
@@ -423,25 +478,38 @@ def main():
         ).cuda()
 
         mixup_ac_params = sum(p.numel() for p in mixup_ac_module.parameters())
+        log_print(f"   [Mixup AC] Initialized with {mixup_ac_params / 1e3:.2f}K parameters")
+        log_print(f"   [Mixup AC] Lambda: {args.lambda_mixup_ac}")
+        log_print(f"   [Mixup AC] Only active during Mixup batches")
+
     na_msac_module = None
     if args.lambda_na_msac > 0:
         if not NA_MSAC_AVAILABLE:
             log_print("   ERROR: NA-MSAC requested but module not available!")
-            log_print("   Please check models/noise_aware_native_attention.py exists")
+            log_print("   Please check models/discrepancy_regulated_cross_attention_consistency.py exists")
             exit(1)
 
-        na_msac_module = NoiseAwareNativeAttention(
+        na_msac_module = DiscrepancyRegulatedCrossAttentionConsistency(
             num_classes=7,
             feature_dims=[64, 128, 256],
             feature_sizes=[28, 14, 7],
             scale_weights=[0.2, 0.3, 0.5],
             use_noise_aware=args.na_msac_noise_aware,
             noise_threshold=args.na_msac_noise_threshold,
-            use_class_aware=args.na_msac_class_aware
+            use_class_aware=args.na_msac_class_aware,
+            single_scale_only=args.na_msac_single_scale,
+            single_scale_index=args.na_msac_single_scale_index
         ).cuda()
 
         na_msac_params = sum(p.numel() for p in na_msac_module.parameters())
         log_print(f"   [NA-MSAC] Lambda: {args.lambda_na_msac}")
+        log_print(f"   [NA-MSAC] Noise-aware: {args.na_msac_noise_aware}")
+        log_print(f"   [NA-MSAC] Class-aware: {args.na_msac_class_aware}")
+        log_print(f"   [NA-MSAC] Single-scale: {args.na_msac_single_scale}"
+                  + (f" (index={args.na_msac_single_scale_index}, "
+                     f"{[28, 14, 7][args.na_msac_single_scale_index]}x"
+                     f"{[28, 14, 7][args.na_msac_single_scale_index]})"
+                     if args.na_msac_single_scale else ""))
         log_print(f"   [NA-MSAC] Parameters: {na_msac_params}")
 
     train_transform = transforms.Compose([
@@ -510,7 +578,7 @@ def main():
 
     if args.resume:
         if os.path.isfile(args.resume):
-            log_print(f"\n=> Loading checkpoints from '{args.resume}'")
+            log_print(f"\n=> Loading checkpoint from '{args.resume}'")
             checkpoint = torch.load(args.resume)
 
             if 'epoch' in checkpoint and args.start_epoch == 0:
@@ -524,7 +592,7 @@ def main():
                 if 'recorder' in checkpoint:
                     recorder.epoch_losses[:start_epoch] = checkpoint['recorder']['losses'][:start_epoch]
                     recorder.epoch_accuracy[:start_epoch] = checkpoint['recorder']['accuracy'][:start_epoch]
-                log_print(f"   Loaded checkpoints from epoch {checkpoint['epoch']}")
+                log_print(f"   Loaded checkpoint from epoch {checkpoint['epoch']}")
                 log_print(f"   Resuming from epoch {start_epoch}")
             else:
                 best_acc = checkpoint.get('best_acc', 0.0)
@@ -532,12 +600,12 @@ def main():
                 if args.start_epoch > 0:
                     log_print(f"   Loaded model weights (manually resuming from epoch {start_epoch})")
                 else:
-                    log_print(f"   Loaded model weights (old format checkpoints)")
+                    log_print(f"   Loaded model weights (old format checkpoint)")
                     log_print(f"   Starting from epoch 0 with loaded weights")
 
             log_print(f"   Best accuracy so far: {best_acc:.2f}%")
         else:
-            log_print(f"=> No checkpoints found at '{args.resume}'")
+            log_print(f"=> No checkpoint found at '{args.resume}'")
 
     if start_epoch > 0:
         for _ in range(start_epoch):
@@ -639,7 +707,8 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
         images, target = images.cuda(), target.cuda()
 
         if na_msac_module is not None:
-            images_flip = torch.flip(images, dims=[3])  # horizontal flip
+            images_na_msac = images
+            images_flip = torch.flip(images_na_msac, dims=[3])
 
         use_mixup_this_batch = args.use_mixup and np.random.rand() < args.mixup_prob
 
@@ -660,9 +729,9 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
                 x1_flip, x2_flip, x3_flip = student.forward_backbone(images_flip)
 
             if na_msac_module is not None:
-                x1_adapted, x2_adapted, x3_adapted = student.forward_backbone_adapted(images)
+                x1_adapted, x2_adapted, x3_adapted = student.forward_backbone_adapted(images_na_msac)
                 x1_adapted_flip, x2_adapted_flip, x3_adapted_flip = student.forward_backbone_adapted(images_flip)
-                _, _, attn_maps_orig = student(images, return_attention=True)
+                _, _, attn_maps_orig = student(images_na_msac, return_attention=True)
                 _, _, attn_maps_flip = student(images_flip, return_attention=True)
 
             if use_mixup_this_batch and mixup_ac_module is not None:
@@ -683,7 +752,7 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
                     F.softmax(teacher_output / args.temperature, dim=1),
                     reduction='batchmean'
                 ) * (args.temperature ** 2)
-                soft_loss = soft_loss_a  # teacher output is unchanged under Mixup
+                soft_loss = soft_loss_a
 
                 student_cls = student_features[:, 0, :]
                 teacher_cls = teacher_features[:, 0, :]
@@ -726,7 +795,7 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
                     s_cls_proj = feature_projector(s_cls)
                     s_cls_proj_norm = F.normalize(s_cls_proj, p=2, dim=-1)
 
-                    for cls_id in range(7):  # RAF-DB has 7 classes
+                    for cls_id in range(7):
                         mask = (target == cls_id)
                         if mask.sum() > 0:
                             t_feat = t_cls[mask].mean(0).detach().float()
