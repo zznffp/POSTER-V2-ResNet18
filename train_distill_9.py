@@ -103,9 +103,9 @@ class LabelSmoothingCrossEntropy(nn.Module):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data', type=str,
-                    default='/root/autodl-tmp/WDY/POSTER_V2/data_preprocessing/val_datasets/FANE-divide-nine-folder/')
+                    default='./data_preprocessing/val_datasets/FANE-divide-nine-folder/')
 parser.add_argument('--teacher_path', type=str,
-                    default='/root/autodl-tmp/WDY/POSTER_V2/checkpoint_FANE/[03-30]-[00-49]--74.49%--服务器原始复现FANE数据集-model.pth')
+                    default='./checkpoint_FANE/[03-30]-[00-49]--74.49%--服务器原始复现FANE数据集-model.pth')
 parser.add_argument('--checkpoint_FANE_path', type=str, default='./checkpoint_FANE/resnet_distill_model.pth')
 parser.add_argument('--best_checkpoint_FANE_path', type=str, default='./checkpoint_FANE/resnet_distill_model_best.pth')
 parser.add_argument('--resume', type=str, default='', help='Path to checkpoint to resume from')
