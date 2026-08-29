@@ -243,8 +243,7 @@ class PosterV2_ResNet(nn.Module):
         # 1.  MobileFaceNet
         self.face_landback = MobileFaceNet([112, 112], 136)
         
-        checkpoint_path = '/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/mobilefacenet_model_best.pth.tar'
-        # ====================================
+        checkpoint_path = './models/pretrain/mobilefacenet_model_best.pth.tar'
         
         try:
             ckpt = torch.load(checkpoint_path, map_location='cpu')
@@ -261,7 +260,7 @@ class PosterV2_ResNet(nn.Module):
         resnet = models.resnet18(pretrained=False)
 
         #  resnet18_msceleb.pth
-        pretrain_path = '/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/resnet18_msceleb.pth'
+        pretrain_path = './models/pretrain/resnet18_msceleb.pth'
         try:
             checkpoint = torch.load(pretrain_path, map_location='cpu')
             state_dict = checkpoint['state_dict']
