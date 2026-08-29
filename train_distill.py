@@ -137,10 +137,10 @@ from models.PosterV2_Original import pyramid_trans_expr2
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data', type=str,
-                    default='/root/autodl-tmp/WDY/POSTER_V2/data_preprocessing/val_datasets/raf-db-divide-7folder',
+                    default='./data_preprocessing/val_datasets/raf-db-divide-7folder',
                     help='dataset path')
 parser.add_argument('--teacher_path', type=str,
-                    default='/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/raf-db-model_best.pth',
+                    default='./models/pretrain/raf-db-model_best.pth',
                     help='Teacher model checkpoint path')
 parser.add_argument('--checkpoint_path', type=str, default='./checkpoint/resnet_distill_model.pth')
 parser.add_argument('--best_checkpoint_path', type=str, default='./checkpoint/resnet_distill_model_best.pth')
