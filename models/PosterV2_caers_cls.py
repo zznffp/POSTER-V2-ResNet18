@@ -242,7 +242,7 @@ class PosterV2_ResNet(nn.Module):
         # 1.  MobileFaceNet
         self.face_landback = MobileFaceNet([112, 112], 136)
         
-        checkpoint_path = '/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/mobilefacenet_model_best.pth.tar'
+        checkpoint_path = './models/pretrain/mobilefacenet_model_best.pth.tar'
         # ====================================
         
         try:
