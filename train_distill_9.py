@@ -17,10 +17,9 @@ from models.PosterV2_Original_9 import pyramid_trans_expr2
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
 
 try:
-    from noise_aware_native_attention import NoiseAwareNativeAttention
+    from discrepancy_regulated_cross_attention_consistency import DiscrepancyRegulatedCrossAttentionConsistency
     NA_MSAC_AVAILABLE = True
 except ImportError:
-    print("Warning: NA-MSAC module not found. --lambda_na_msac will be disabled.")
     NA_MSAC_AVAILABLE = False
 from torch.utils.data import DataLoader, Dataset
 from thop import profile
@@ -44,7 +43,6 @@ class FocalLoss(nn.Module):
             return focal_loss.sum()
         else:
             return focal_loss
-
 
 class ContrastiveLoss(nn.Module):
     def __init__(self, temperature=0.07, use_distance=True):
@@ -75,7 +73,6 @@ class ContrastiveLoss(nn.Module):
             loss_t2s = F.cross_entropy(similarity_matrix.T, labels)
             return (loss_s2t + loss_t2s) / 2.0
 
-
 def mixup_data(x, y, alpha=0.2, device='cuda'):
     if alpha > 0:
         lam = np.random.beta(alpha, alpha)
@@ -91,7 +88,6 @@ def mixup_data(x, y, alpha=0.2, device='cuda'):
 def mixup_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
-
 class LabelSmoothingCrossEntropy(nn.Module):
     def __init__(self, smoothing=0.1):
         super().__init__()
@@ -105,33 +101,42 @@ class LabelSmoothingCrossEntropy(nn.Module):
         loss = -(one_hot * log_prob).sum(dim=1).mean()
         return loss
 
-
 parser = argparse.ArgumentParser()
-parser.add_argument('--data', type=str, default='./data_preprocessing/FANE-divide-9folders/')
-parser.add_argument('--teacher_path', type=str, default='./models/pretrain/fane-model_best.pth')
-parser.add_argument('--checkpoint_FANE_path', type=str, default='./checkpoints/FANE_resnet_distill_model.pth')
-parser.add_argument('--best_checkpoint_FANE_path', type=str, default='./checkpoints/resnet_distill_model_best.pth')
-parser.add_argument('--resume', type=str, default='', help='Path to checkpoints to resume from')
+parser.add_argument('--data', type=str,
+                    default='/root/autodl-tmp/WDY/POSTER_V2/data_preprocessing/val_datasets/FANE-divide-nine-folder/')
+parser.add_argument('--teacher_path', type=str,
+                    default='/root/autodl-tmp/WDY/POSTER_V2/checkpoint_FANE/[03-30]-[00-49]--74.49%--服务器原始复现FANE数据集-model.pth')
+parser.add_argument('--checkpoint_FANE_path', type=str, default='./checkpoint_FANE/resnet_distill_model.pth')
+parser.add_argument('--best_checkpoint_FANE_path', type=str, default='./checkpoint_FANE/resnet_distill_model_best.pth')
+parser.add_argument('--resume', type=str, default='', help='Path to checkpoint to resume from')
 parser.add_argument('--start_epoch', type=int, default=0)
 parser.add_argument('--workers', default=4, type=int)
 parser.add_argument('--epochs', default=200, type=int)
 parser.add_argument('--batch-size', default=128, type=int)
+
+
 parser.add_argument('--wd_backbone', default=1e-4, type=float,
-                    help='Weight decay for ResNet backbone (small, to preserve transfer-learned features)')
+                    help='Weight decay for ResNet backbone (small, preserves transfer-learned features)')
 parser.add_argument('--wd_head', default=1e-2, type=float,
-                    help='Weight decay for ViT head + projector (large, to suppress head overfitting)')
+                    help='Weight decay for ViT head + projector (large, suppresses head overfitting)')
 parser.add_argument('--weight_decay', default=1e-4, type=float,
-                    help='[legacy compat] uniform value used when differentiated WD is not applied')
+                    help='[legacy] Uniform weight decay, used when layer-wise WD is disabled')
+
 parser.add_argument('--lr', default=0.0002, type=float)
+
+
 parser.add_argument('--use_mixup', default=True, type=bool)
 parser.add_argument('--mixup_alpha', default=0.2, type=float,
-                    help='Mixup alpha (lowered: 0.5->0.2, reduces double blurring with distillation soft labels)')
+                    help='Mixup alpha (reduced 0.5->0.2, lessens double blur with soft labels)')
 parser.add_argument('--mixup_prob', default=0.5, type=float,
-                    help='Mixup probability (lowered: 0.8->0.5)')
+                    help='Mixup probability (reduced 0.8->0.5)')
+
+
 parser.add_argument('--temperature', default=4.0, type=float,
-                    help='Distillation Temperature (raised: 3.5->4.0, richer soft-label information)')
+                    help='Distillation temperature (raised 3.5->4.0, richer soft-label information)')
 parser.add_argument('--alpha', default=0.6, type=float,
-                    help='Distillation Loss Weight (raised: 0.5->0.6, relies more on teacher soft labels)')
+                    help='Distillation loss weight (raised 0.5->0.6, leans more on teacher soft labels)')
+
 parser.add_argument('--beta', default=0.5, type=float)
 parser.add_argument('--label_smoothing', default=0.15, type=float)
 parser.add_argument('--dropout', default=0.4, type=float)
@@ -146,25 +151,31 @@ parser.add_argument('--proto_contrast_temp', default=0.1, type=float,
 parser.add_argument('--contrast_temperature', default=0.07, type=float)
 parser.add_argument('--use_distance_contrast', default=True, type=bool)
 parser.add_argument('--warmup_epochs', default=5, type=int)
+
+
 parser.add_argument('--accumulation_steps', default=1, type=int)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--focal_gamma', default=2.5, type=float)
+
 parser.add_argument('--lambda_na_msac', type=float, default=1.0,
                     help='NA-MSAC loss weight (recommended: 0.5-1.0, default: 1.0)')
 parser.add_argument('--na_msac_noise_aware', action='store_true', default=True,
-                    help='NA-MSAC: enable noise-aware mechanism (default: True)')
+                    help='NA-MSAC: enable the noise-aware mechanism (default: True)')
 parser.add_argument('--na_msac_noise_threshold', type=float, default=0.3,
                     help='NA-MSAC: noise-aware threshold (default: 0.3)')
 parser.add_argument('--na_msac_class_aware', action='store_true', default=False,
-                    help='NA-MSAC: enable class-aware mode (default: False)')
+                    help='NA-MSAC: enable class-aware weighting (default: False)')
 parser.add_argument('--no_na_msac_class_aware', action='store_false', dest='na_msac_class_aware',
-                    help='NA-MSAC: disable class-aware mode')
+                    help='NA-MSAC: disable class-aware weighting')
+
 parser.add_argument('--use_csi', action='store_true', default=False,
                     help='Enable CSI (Cross-Scale Interaction)')
 parser.add_argument('--no_csi', action='store_false', dest='use_csi',
                     help='Disable CSI')
 parser.add_argument('--gpu', type=str, default='0', help='GPU ID to use')
+
 args = parser.parse_args()
+
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
 
@@ -207,14 +218,12 @@ def multilayer_distillation_loss(student_logits, teacher_logits,
     # 1. Hard label loss
     hard_loss = criterion_hard(student_logits, labels)
 
-    # 2. Soft label loss (KL divergence)
     soft_loss = F.kl_div(
         F.log_softmax(student_logits / temperature, dim=1),
         F.softmax(teacher_logits / temperature, dim=1),
         reduction='batchmean'
     ) * (temperature ** 2)
 
-    # 3. Feature distillation
     student_cls = student_features[:, 0, :]
     teacher_cls = teacher_features[:, 0, :]
     if feature_projector is not None:
@@ -231,6 +240,7 @@ def multilayer_distillation_loss(student_logits, teacher_logits,
     teacher_global_norm = F.normalize(teacher_global, p=2, dim=-1)
     global_loss = F.mse_loss(student_global_norm, teacher_global_norm)
     feature_loss = 0.6 * cls_loss + 0.4 * global_loss
+
     contrastive_loss = contrastive_criterion(student_cls, teacher_cls)
 
     logits_loss = alpha * soft_loss + (1 - alpha) * hard_loss
@@ -321,24 +331,22 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
         images, target = images.cuda(), target.cuda()
 
         if na_msac_module is not None:
-            images_flip = torch.flip(images, dims=[3])
+            images_na_msac = images
+            images_flip = torch.flip(images_na_msac, dims=[3])
 
         use_mixup_this_batch = args.use_mixup and np.random.rand() < args.mixup_prob
 
         if use_mixup_this_batch:
             images, target_a, target_b, lam = mixup_data(
                 images, target, alpha=args.mixup_alpha, device='cuda')
-            if na_msac_module is not None:
-                images_flip, _, _, _ = mixup_data(
-                    images_flip, target, alpha=args.mixup_alpha, device='cuda')
 
         with torch.cuda.amp.autocast():
             if na_msac_module is not None:
                 student_output, student_aux, _, student_features = student(images, return_features=True)
-                x1_adapted, x2_adapted, x3_adapted = student.forward_backbone_adapted(images)
+                x1_adapted, x2_adapted, x3_adapted = student.forward_backbone_adapted(images_na_msac)
                 x1_adapted_flip, x2_adapted_flip, x3_adapted_flip = student.forward_backbone_adapted(images_flip)
                 with torch.no_grad():
-                    _, _, attn_maps_orig = student(images, return_attention=True)
+                    _, _, attn_maps_orig = student(images_na_msac, return_attention=True)
                     _, _, attn_maps_flip = student(images_flip, return_attention=True)
             else:
                 student_output, student_aux, _, student_features = student(images, return_features=True)
@@ -386,7 +394,6 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
                 )
                 aux_loss = criterion_hard(student_aux, target)
 
-                # Prototype distillation (positive alignment + inter-class InfoNCE)
                 proto_loss = torch.tensor(0.0).cuda()
                 proto_contrast_loss = torch.tensor(0.0).cuda()
                 if teacher_prototypes is not None and (args.lambda_proto > 0 or args.lambda_proto_contrast > 0):
@@ -394,7 +401,6 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
                     t_cls = teacher_features[:, 0, :]
                     s_cls_proj = feature_projector(s_cls)
                     s_cls_proj_norm = F.normalize(s_cls_proj, p=2, dim=-1)
-                    # Momentum update of prototypes
                     for cls_id in range(9):
                         mask = (target == cls_id)
                         if mask.sum() > 0:
@@ -405,7 +411,6 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
                                 teacher_prototypes[cls_id] = (
                                     0.9 * teacher_prototypes[cls_id] + 0.1 * t_feat
                                 ).detach()
-                    # Positive alignment: student feature -> correct-class prototype
                     if args.lambda_proto > 0:
                         proto_count = 0
                         for cls_id in range(9):
@@ -422,7 +427,6 @@ def train_distill(train_loader, student, teacher, criterion_hard, criterion_cont
                                 proto_count += 1
                         if proto_count > 0:
                             proto_loss = proto_loss / proto_count
-                    # Inter-class relation: InfoNCE
                     if args.lambda_proto_contrast > 0 and len(teacher_prototypes) >= 2:
                         proto_ids = sorted(teacher_prototypes.keys())
                         all_protos = torch.stack([
@@ -531,7 +535,7 @@ def accuracy(output, target, topk=(1,)):
 
 
 def main():
-    if not os.path.exists('./checkpoints'): os.makedirs('./checkpoints')
+    if not os.path.exists('./checkpoint_FANE'): os.makedirs('./checkpoint_FANE')
     if not os.path.exists('./log_Fane'): os.makedirs('./log_Fane')
 
     args = parser.parse_args()
@@ -547,18 +551,25 @@ def main():
     torch.manual_seed(seed); torch.cuda.manual_seed(seed); torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    print(f"✓ Using {seed_type} seed: {seed}")
+
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_file = f'./log_Fane/train_v2_proto_seed{seed}_{timestamp}.log'
     curve_file = f'./log_Fane/train_v2_proto_seed{seed}_{timestamp}_curve.png'
-    args.best_checkpoint_FANE_path = f'./checkpoints/resnet_distill_v2_proto_seed{seed}_best_{timestamp}.pth'
+    args.best_checkpoint_FANE_path = f'./checkpoint_FANE/resnet_distill_v2_proto_seed{seed}_best_{timestamp}.pth'
 
     def log_print(message):
         print(message)
         with open(log_file, 'a', encoding='utf-8') as f:
             f.write(message + '\n')
 
+    log_print("=" * 80)
+    log_print("Multi-Layer Feature Distillation Training v2 + Prototype Distillation")
+    log_print("=" * 80)
     teacher = load_teacher_model(args.teacher_path)
     teacher = teacher.cuda()
+
+    log_print("\n=> Creating student model: PosterV2 (ResNet18)...")
     student = PosterV2_ResNet(img_size=224, num_classes=9, dropout=args.dropout, use_csi=args.use_csi)
 
     total_params = sum(p.numel() for p in student.parameters())
@@ -566,7 +577,7 @@ def main():
     frozen_params = total_params - trainable_params
     input_tensor = torch.randn(1, 3, 224, 224)
     flops, _ = profile(student, inputs=(input_tensor,), verbose=False)
-
+    
     log_print(f"   Student Parameters: {trainable_params/1e6:.2f}M (trainable) + {frozen_params/1e6:.2f}M (frozen) = {total_params/1e6:.2f}M (total)")
     log_print(f"   Student FLOPs: {flops/1e9:.2f} G")
     log_print(f"   Log file: {log_file}")
@@ -574,33 +585,42 @@ def main():
     log_print(f"   - Random seed: {seed} ({seed_type})")
     log_print(f"   - Batch size: {args.batch_size}")
     log_print(f"   - Learning rate: {args.lr}")
-    log_print(f"   - Weight decay backbone: {args.wd_backbone} [differentiated, small for backbone]")
-    log_print(f"   - Weight decay head/proj: {args.wd_head} [differentiated, large for head]")
+    log_print(f"   - Weight decay backbone: {args.wd_backbone} [NEW: layer-wise, small for backbone]")
+    log_print(f"   - Weight decay head/proj: {args.wd_head} [NEW: layer-wise, large for head]")
     log_print(f"   - Epochs: {args.epochs}")
     log_print(f"   - Warmup epochs: {args.warmup_epochs}")
     log_print(f"   - LR Scheduler: Warmup + Cosine Annealing")
     log_print(f"  -Distillation alpha: {args.alpha} ")
+    log_print(f"   - Temperature: {args.temperature} ")
+    log_print(f"   - Focal Loss gamma: {args.focal_gamma}")
+    log_print(f"   - Mixup: {args.use_mixup} (alpha={args.mixup_alpha} [NEW:0.5→0.2], prob={args.mixup_prob} [NEW:0.8→0.5])")
+    log_print(f"   - Dropout: {args.dropout}")
+    log_print(f"   - Lambda feature: {args.lambda_feature}")
+    log_print(f"   - Lambda contrast: {args.lambda_contrast} (QCS-style: {args.use_distance_contrast})")
+    log_print(f"   - Contrast temperature: {args.contrast_temperature}")
+    log_print(f"   - Lambda proto: {args.lambda_proto} [Prototype positive alignment]")
+    log_print(f"   - Lambda proto contrast: {args.lambda_proto_contrast} [inter-class InfoNCE]")
+    log_print(f"   - Proto contrast temp: {args.proto_contrast_temp}")
+    log_print(f"   CSI enabled: {args.use_csi}")
     log_print("-" * 80)
 
     student = student.cuda()
 
-    # Feature projection layer
     student_embed_dim = 512
     teacher_embed_dim = 768
     feature_projector = nn.Linear(student_embed_dim, teacher_embed_dim).cuda()
     log_print(f"   - Feature projector: {student_embed_dim} → {teacher_embed_dim}")
 
-    # Initialize NA-MSAC (noise-aware native attention)
     na_msac_module = None
     if args.lambda_na_msac > 0:
         if not NA_MSAC_AVAILABLE:
             log_print("   ERROR: NA-MSAC requested but module not available!")
-            log_print("   Please check models/noise_aware_native_attention.py exists")
+            log_print("   Please check models/discrepancy_regulated_cross_attention_consistency.py exists")
             exit(1)
 
-        na_msac_module = NoiseAwareNativeAttention(
+        na_msac_module = DiscrepancyRegulatedCrossAttentionConsistency(
             num_classes=9,
-            feature_dims=[64, 128, 256],  # dimensions of the adapted features
+            feature_dims=[64, 128, 256],
             feature_sizes=[28, 14, 7],
             scale_weights=[0.2, 0.3, 0.5],
             use_noise_aware=args.na_msac_noise_aware,
@@ -615,7 +635,6 @@ def main():
         log_print(f"   [NA-MSAC] Multi-scale:  True (28x28 + 14x14 + 7x7, weights={[0.2, 0.3, 0.5]})")
         log_print(f"   [NA-MSAC] Single-scale: False")
 
-    # 3. Data preparation
     train_transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.RandomHorizontalFlip(p=0.5),
@@ -641,12 +660,7 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
                             num_workers=args.workers, pin_memory=True)
 
-    # 4. Optimizer -- differentiated weight_decay
     #
-    #   Split parameters into three groups:
-    #     Group A: ResNet backbone (stem + layer1~4 + adapt layers) -> wd = wd_backbone (small)
-    #     Group B: ViT head + face branch + window attention etc.   -> wd = wd_head (large)
-    #     Group C: feature_projector                                -> wd = wd_head (large)
     #
     backbone_param_names = set()
     backbone_modules = ['stem', 'layer1', 'layer2', 'layer3', 'layer4',
@@ -701,14 +715,12 @@ def main():
     # Resume
     if args.resume:
         if os.path.isfile(args.resume):
-            log_print(f"\n=> Loading checkpoints from '{args.resume}'")
+            log_print(f"\n=> Loading checkpoint from '{args.resume}'")
             ckpt = torch.load(args.resume)
             if 'epoch' in ckpt and args.start_epoch == 0:
                 start_epoch = ckpt['epoch'] + 1
                 best_acc = ckpt['best_acc']
                 student.load_state_dict(ckpt['state_dict'])
-                # Note: v2 optimizer grouping differs from the original, so optimizer state cannot be loaded directly.
-                # When resuming from an original-format checkpoints, skip loading the optimizer state.
                 try:
                     optimizer.load_state_dict(ckpt['optimizer'])
                     log_print("   Loaded optimizer state.")
@@ -728,15 +740,14 @@ def main():
                 student.load_state_dict(ckpt['state_dict'])
                 log_print(f"   Loaded model weights, best_acc={best_acc:.2f}%")
         else:
-            log_print(f"=> No checkpoints found at '{args.resume}'")
+            log_print(f"=> No checkpoint found at '{args.resume}'")
 
     if start_epoch > 0:
         for _ in range(start_epoch):
             scheduler.step()
         log_print(f"   LR adjusted to: {optimizer.param_groups[0]['lr']:.6f} for epoch {start_epoch}")
 
-    # 5. Training loop
-    teacher_prototypes = {}  # class prototypes persisted across epochs {cls_id: tensor(768,)}
+    teacher_prototypes = {}
     for epoch in range(start_epoch, args.epochs):
         train_acc, train_loss = train_distill(
             train_loader, student, teacher, criterion_focal,
@@ -808,6 +819,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
+    
