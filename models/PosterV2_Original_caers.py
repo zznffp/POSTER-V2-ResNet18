@@ -17,6 +17,8 @@ def load_pretrained_weights(model, checkpoint):
     new_state_dict = collections.OrderedDict()
     matched_layers, discarded_layers = [], []
     for k, v in state_dict.items():
+        # If the pretrained state_dict was saved as nn.DataParallel,
+        # keys would contain "module.", which should be ignored.
         if k.startswith('module.'):
             k = k[7:]
         if k in model_dict and model_dict[k].size() == v.size():
@@ -24,6 +26,7 @@ def load_pretrained_weights(model, checkpoint):
             matched_layers.append(k)
         else:
             discarded_layers.append(k)
+    # new_state_dict.requires_grad = False
     model_dict.update(new_state_dict)
 
     model.load_state_dict(model_dict)
@@ -31,6 +34,14 @@ def load_pretrained_weights(model, checkpoint):
     return model
 
 def window_partition(x, window_size, h_w, w_w):
+    """
+    Args:
+        x: (B, H, W, C)
+        window_size: window size
+
+    Returns:
+        local window features (num_windows*B, window_size, window_size, C)
+    """
     B, H, W, C = x.shape
     x = x.view(B, h_w, window_size, w_w, window_size, C)
     windows = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)
@@ -53,6 +64,10 @@ class window(nn.Module):
         return x_windows, shortcut
 
 class WindowAttentionGlobal(nn.Module):
+    """
+    Global window attention based on: "Hatamizadeh et al.,
+    Global Context Vision Transformers <https://arxiv.org/abs/2206.09959>"
+    """
 
     def __init__(self,
                  dim,
@@ -63,6 +78,16 @@ class WindowAttentionGlobal(nn.Module):
                  attn_drop=0.,
                  proj_drop=0.,
                  ):
+        """
+        Args:
+            dim: feature size dimension.
+            num_heads: number of attention head.
+            window_size: window size.
+            qkv_bias: bool argument for query, key, value learnable bias.
+            qk_scale: bool argument to scaling query, key.
+            attn_drop: attention dropout rate.
+            proj_drop: output dropout rate.
+        """
 
         super().__init__()
         window_size = (window_size, window_size)
@@ -91,6 +116,8 @@ class WindowAttentionGlobal(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, q_global):
+        # print(f'q_global.shape:{q_global.shape}')
+        # print(f'x.shape:{x.shape}')
         B_, N, C = x.shape
         B = q_global.shape[0]
         head_dim = int(torch.div(C, self.num_heads).item())
@@ -113,6 +140,13 @@ class WindowAttentionGlobal(nn.Module):
         return x
 
 def _to_channel_last(x):
+    """
+    Args:
+        x: (B, C, H, W)
+
+    Returns:
+        x: (B, H, W, C)
+    """
     return x.permute(0, 2, 3, 1)
 
 def _to_channel_first(x):
@@ -124,6 +158,9 @@ def _to_query(x, N, num_heads, dim_head):
     return x
 
 class Mlp(nn.Module):
+    """
+    Multi-Layer Perceptron (MLP) block
+    """
 
     def __init__(self,
                  in_features,
@@ -131,6 +168,14 @@ class Mlp(nn.Module):
                  out_features=None,
                  act_layer=nn.GELU,
                  drop=0.):
+        """
+        Args:
+            in_features: input features dimension.
+            hidden_features: hidden features dimension.
+            out_features: output features dimension.
+            act_layer: activation function.
+            drop: dropout rate.
+        """
 
         super().__init__()
         out_features = out_features or in_features
@@ -149,6 +194,16 @@ class Mlp(nn.Module):
         return x
 
 def window_reverse(windows, window_size, H, W, h_w, w_w):
+    """
+    Args:
+        windows: local window features (num_windows*B, window_size, window_size, C)
+        window_size: Window size
+        H: Height of image
+        W: Width of image
+
+    Returns:
+        x: (B, H, W, C)
+    """
     B = int(windows.shape[0] / (H * W / window_size / window_size))
     x = windows.view(B, h_w, w_w, window_size, window_size, -1)
     x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
@@ -190,7 +245,7 @@ class pyramid_trans_expr2(nn.Module):
         self.window_size = window_size
         self.N = [win * win for win in window_size]
         self.face_landback = MobileFaceNet([112, 112], 136)
-        face_landback_checkpoint = torch.load(r'./POSTER_V2/models/pretrain/mobilefacenet_model_best.pth.tar',
+        face_landback_checkpoint = torch.load(r'/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/mobilefacenet_model_best.pth.tar',
                                               map_location=lambda storage, loc: storage)
         self.face_landback.load_state_dict(face_landback_checkpoint['state_dict'])
 
@@ -200,7 +255,7 @@ class pyramid_trans_expr2(nn.Module):
         self.VIT = VisionTransformer(depth=2, embed_dim=embed_dim, num_classes=num_classes)
 
         self.ir_back = Backbone(50, 0.0, 'ir')
-        ir_checkpoint = torch.load(r'./models/pretrain/ir50.pth', map_location=lambda storage, loc: storage)
+        ir_checkpoint = torch.load(r'/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/ir50.pth', map_location=lambda storage, loc: storage)
 
         self.ir_back = load_pretrained_weights(self.ir_back, ir_checkpoint)
 
