@@ -282,7 +282,7 @@ class pyramid_trans_expr2(nn.Module):
         self.face_landback = MobileFaceNet([112, 112], 136)
 
         face_landback_checkpoint = torch.load(
-            r'/root/autodl-tmp/WDY/POSTER_V2/models/pretrain/mobilefacenet_model_best.pth.tar',
+            r'./models/pretrain/mobilefacenet_model_best.pth.tar',
             map_location=lambda storage, loc: storage)
         self.face_landback.load_state_dict(face_landback_checkpoint['state_dict'])
 
