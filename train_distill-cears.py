@@ -142,7 +142,7 @@ parser.add_argument('--data', type=str,
                     default='./data_preprocessing/val_datasets/CAER-S-divide-7folders',
                     help='dataset path')
 parser.add_argument('--teacher_path', type=str,
-                    default='./checkpoint_caers/[04-09]-[10-52]-best-92.74%-教师模型复现-model.pth',
+                    default='./models/pretrain/caer-s-model_best.pth',
                     help='Teacher model checkpoint path')
 parser.add_argument('--checkpoint_path', type=str, default='./checkpoint_caers/resnet_distill_model.pth')
 parser.add_argument('--best_checkpoint_path', type=str, default='./checkpoint_caers/resnet_distill_model_best.pth')
