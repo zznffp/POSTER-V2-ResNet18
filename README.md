@@ -69,7 +69,7 @@ The training settings used for the reported results, including the number of epo
 
 Before training, please ensure that the datasets and required pretrained/teacher checkpoints are organized according to the directory structures described above.
 
-Released Model Checkpoints
+## Released Model Checkpoints
 
 The trained POSTER V2-ResNet18 checkpoints corresponding to the results reported in the manuscript are available from:
 
