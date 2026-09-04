@@ -37,7 +37,7 @@ data_preprocessing/
 
 The folder name `valid/` follows the implementation convention used by the training scripts. For RAF-DB and CAER-S, it contains the official test split. For FANE, it contains the held-out 20% test split used only for evaluation and not for training or hyperparameter selection.
 
-## Required Checkpoints
+## Pretrained and Teacher Checkpoints
 
 Before training, please place the required pretrained backbone weights and POSTER++ teacher checkpoints under:
 
@@ -69,6 +69,14 @@ The training settings used for the reported results, including the number of epo
 
 Before training, please ensure that the datasets and required pretrained/teacher checkpoints are organized according to the directory structures described above.
 
+## Results
+
+| Dataset | Top-1 Accuracy (%) | Parameters | FLOPs |
+| ------- | -----------------: | ---------: | ----: |
+| RAF-DB  | 90.97 | 20.89M | 3.82G |
+| CAER-S  | 92.16 | 20.89M | 3.82G |
+| FANE    | 73.79 | 20.89M | 3.82G |
+
 ## Released Model Checkpoints
 
 The trained POSTER V2-ResNet18 checkpoints corresponding to the results reported in the manuscript are available from:
@@ -79,4 +87,4 @@ The trained POSTER V2-ResNet18 checkpoints corresponding to the results reported
 Citation information will be updated upon publication.
 
 ## License
-This repository is released under the MIT License. See [LICENSE](LICENSE) for details.
+This repository is released under the MIT License. See [LICENSE](LICENSE) for details.Datasets, pretrained weights, and other external resources are subject to their respective original licenses and terms of use.
