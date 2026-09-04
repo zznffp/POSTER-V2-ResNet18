@@ -4,8 +4,6 @@ This repository provides the PyTorch implementation of the manuscript:
 
 **Discrepancy-Regulated Cross-Attention Consistency for Efficient Facial Expression Recognition**
 
-The proposed method trains a lightweight **POSTER V2-ResNet18** model for facial expression recognition (FER). Its core training mechanism is **Discrepancy-Regulated Cross-Attention Consistency (DR-CAC)**, which regulates internal cross-attention consistency between original and horizontally flipped inputs according to the aligned discrepancy of the same sample and spatial scale. DR-CAC is jointly optimized with logits distillation and feature representation alignment. During inference, only the standard POSTER V2-ResNet18 classification path is retained.
-
 ## Requirements
 
 Please install the required packages:
