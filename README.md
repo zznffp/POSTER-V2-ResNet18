@@ -39,7 +39,7 @@ The folder name `valid/` follows the implementation convention used by the train
 
 ## Required Checkpoints
 
-Please place the required checkpoints under:
+Before training, please place the required pretrained backbone weights and POSTER++ teacher checkpoints under:
 
 ```text
 models/pretrain/
@@ -69,47 +69,14 @@ The training settings used for the reported results, including the number of epo
 
 Before training, please ensure that the datasets and required pretrained/teacher checkpoints are organized according to the directory structures described above.
 
-## Results
+Released Model Checkpoints
 
-| Dataset | Top-1 Accuracy (%) | Parameters | FLOPs |
-| ------- | -----------------: | ---------: | ----: |
-| RAF-DB  |        90.97       |    20.89M  | 3.82G |
-| CAER-S  |        92.16       |    20.89M  | 3.82G |
-| FANE    |        73.79       |    20.89M  | 3.82G |
-
-## Checkpoints and Logs
-
-Training checkpoints are saved in:
-
-```text
-checkpoints/
-```
-
-Training logs are saved in:
-
-```text
-log/
-log_caers/
-log_Fane/
-```
-
-The final trained checkpoints corresponding to the reported results are available from Google Drive:
+The trained POSTER V2-ResNet18 checkpoints corresponding to the results reported in the manuscript are available from:
 
 [Google Drive checkpoint folder](https://drive.google.com/drive/folders/17AhweJCFLquS3k7MaTEyw6AoKj5BQPA6?usp=sharing)
 
-## Code and Data Availability
-
-This repository provides the source code, model definitions, and training scripts used in the manuscript. The original datasets and third-party pretrained weights are not redistributed because of their respective licenses and file-size constraints; please obtain them from their original sources.
-
-The final trained POSTER V2-ResNet18 checkpoints corresponding to the reported results are available through the Google Drive link provided above.
-
 ## Citation
-
-
-## Acknowledgements
-
-We thank the open-source community for providing useful resources for facial expression recognition research.
+Citation information will be updated upon publication.
 
 ## License
-
 This repository is released under the MIT License. See [LICENSE](LICENSE) for details.
