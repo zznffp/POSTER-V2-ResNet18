@@ -87,4 +87,5 @@ The trained POSTER V2-ResNet18 checkpoints corresponding to the results reported
 Citation information will be updated upon publication.
 
 ## License
-This repository is released under the MIT License. See [LICENSE](LICENSE) for details.Datasets, pretrained weights, and other external resources are subject to their respective original licenses and terms of use.
+This repository is released under the MIT License. See [LICENSE](LICENSE) for details.
+Datasets, pretrained weights, and other external resources are subject to their respective original licenses and terms of use.
